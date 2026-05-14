@@ -1,7 +1,15 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
+// next-pwa v5 is CommonJS — require() is the correct import style
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const withPWA = require('next-pwa')({
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  // Disable service worker in development to avoid caching stale responses
+  disable: process.env.NODE_ENV === 'development',
+})
 
-export default nextConfig;
+const nextConfig: NextConfig = {}
+
+export default withPWA(nextConfig)
