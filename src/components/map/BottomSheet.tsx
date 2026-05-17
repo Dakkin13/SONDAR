@@ -14,7 +14,7 @@ function ExpandedView({ musician, onClose }: { musician: NearbyMusician; onClose
     <div className="px-4 pb-8">
       <button
         onClick={onClose}
-        className="mb-5 text-xs text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
+        className="mb-4 flex min-h-[44px] items-center text-xs text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
       >
         ← Back
       </button>
@@ -50,8 +50,8 @@ function ExpandedView({ musician, onClose }: { musician: NearbyMusician; onClose
           >
             {musician.display_name ?? 'Unknown'}
           </h3>
-          {musician.location_name && (
-            <p className="text-xs text-[rgba(240,239,235,0.4)]">{musician.location_name}</p>
+          {musician.city && (
+            <p className="text-xs text-[rgba(240,239,235,0.4)]">{musician.city}</p>
           )}
           <p className="text-[10px] text-[rgba(240,239,235,0.3)]">
             {musician.distance_km < 1
@@ -121,13 +121,25 @@ const EXPAND_H = 480 // height when showing selected musician
 export default function BottomSheet({ musicians, selected, onClose }: Props) {
   return (
     <motion.div
-      className="glass overflow-hidden rounded-t-3xl"
+      className="overflow-hidden rounded-t-3xl"
+      style={{
+        background: 'rgba(18,18,18,0.72)',
+        backdropFilter: 'blur(36px) saturate(220%)',
+        WebkitBackdropFilter: 'blur(36px) saturate(220%)',
+        border: '1px solid rgba(255,255,255,0.09)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 -8px 48px rgba(0,0,0,0.55)',
+      }}
       animate={{ height: selected ? EXPAND_H : PEEK_H }}
       transition={SPRING}
     >
-      {/* Handle */}
+      {/* Handle — opacity animates on hover */}
       <div className="flex shrink-0 justify-center pb-2 pt-3">
-        <div className="h-1 w-10 rounded-full bg-[rgba(240,239,235,0.2)]" />
+        <motion.div
+          className="h-1 w-10 rounded-full bg-[rgba(240,239,235,0.4)]"
+          initial={{ opacity: 0.4 }}
+          whileHover={{ opacity: 1 }}
+          transition={{ duration: 0.2 }}
+        />
       </div>
 
       <AnimatePresence mode="wait" initial={false}>

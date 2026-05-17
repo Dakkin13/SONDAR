@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
 // Routes that require an authenticated session
-const PROTECTED = ['/explore', '/messages', '/settings']
+const PROTECTED = ['/home', '/explore', '/messages', '/settings', '/profile']
 
 export async function proxy(request: NextRequest) {
   if (
@@ -14,86 +14,93 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Always pass OAuth callbacks through — Supabase needs to set session cookies
-  if (pathname.startsWith('/auth/')) {
+  // Always pass OAuth callbacks and API routes through unchanged
+  if (pathname.startsWith('/auth/') || pathname.startsWith('/api/')) {
     return NextResponse.next({ request })
   }
 
-  let supabaseResponse = NextResponse.next({ request })
+  try {
+    let supabaseResponse = NextResponse.next({ request })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet, extraHeaders) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            request.cookies.set(name, value),
-          )
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          )
-          Object.entries(extraHeaders ?? {}).forEach(([key, value]) =>
-            supabaseResponse.headers.set(key, value),
-          )
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value),
+            )
+            supabaseResponse = NextResponse.next({ request })
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options),
+            )
+          },
         },
       },
-    },
-  )
-
-  // getUser() validates the JWT against Supabase Auth — never use getSession() here
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // ── Unauthenticated ─────────────────────────────────────────────────────────
-  if (!user) {
-    const isProtected = PROTECTED.some(
-      (r) => pathname === r || pathname.startsWith(`${r}/`),
     )
-    if (isProtected) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/login'
-      return NextResponse.redirect(url)
+
+    // getUser() validates the JWT against Supabase Auth — never use getSession() here
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    // ── Unauthenticated ───────────────────────────────────────────────────────
+    if (!user) {
+      const isProtected = PROTECTED.some(
+        (r) => pathname === r || pathname.startsWith(`${r}/`),
+      )
+      if (isProtected) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/login'
+        return NextResponse.redirect(url)
+      }
+      return supabaseResponse
     }
+
+    // ── Authenticated — check onboarding status for routes that need it ───────
+    const onLogin      = pathname === '/login'
+    const onOnboarding = pathname === '/onboarding' || pathname.startsWith('/onboarding/')
+    const onProtected  = PROTECTED.some((r) => pathname === r || pathname.startsWith(`${r}/`))
+
+    if (onLogin || onOnboarding || onProtected) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_onboarded')
+        .eq('id', user.id)
+        .single()
+
+      const completed = profile?.is_onboarded === true
+
+      if ((onLogin || onOnboarding) && completed) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/home'
+        return NextResponse.redirect(url)
+      }
+
+      if (onLogin && !completed) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/onboarding'
+        return NextResponse.redirect(url)
+      }
+
+      if (onProtected && !completed) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/onboarding'
+        return NextResponse.redirect(url)
+      }
+    }
+
     return supabaseResponse
+  } catch (err) {
+    // If anything goes wrong (network, DB, etc.) just let the request through
+    // rather than breaking the whole page.
+    console.error('[middleware] error:', err)
+    return NextResponse.next({ request })
   }
-
-  // ── Authenticated — check onboarding status for routes that need it ─────────
-  const onOnboarding = pathname === '/onboarding' || pathname.startsWith('/onboarding/')
-  const onProtected  = PROTECTED.some((r) => pathname === r || pathname.startsWith(`${r}/`))
-
-  if (onOnboarding || onProtected) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_onboarded')
-      .eq('id', user.id)
-      .single()
-
-    console.log('[middleware] profile for', user.id, '→', profile)
-
-    const completed = profile?.is_onboarded === true
-
-    if (onOnboarding && completed) {
-      // Already onboarded — send them to the app
-      const url = request.nextUrl.clone()
-      url.pathname = '/explore'
-      return NextResponse.redirect(url)
-    }
-
-    if (onProtected && !completed) {
-      // Authenticated but profile not complete yet
-      const url = request.nextUrl.clone()
-      url.pathname = '/onboarding'
-      return NextResponse.redirect(url)
-    }
-  }
-
-  return supabaseResponse
 }
 
 export const config = {

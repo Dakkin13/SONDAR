@@ -73,7 +73,7 @@ export default function MusicianCard({ musician, compact = true }: Props) {
             </p>
           ) : (
             <p className="mt-0.5 text-[10px] text-[rgba(240,239,235,0.3)]">
-              {musician.location_name ?? ''}
+              {musician.city ?? ''}
             </p>
           )}
         </div>

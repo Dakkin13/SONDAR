@@ -19,10 +19,6 @@ const OBJECTIVE_LABELS: Record<Objective, string> = {
   'form-band': 'Form a band',
   record: 'Studio sessions',
   'perform-live': 'Live gigs',
-  teach: 'Teaching',
-  learn: 'Learning',
-  collaborate: 'Collaborate',
-  'session-work': 'Session work',
 }
 
 const stagger = {
@@ -62,7 +58,7 @@ export default function Confirmation({
         </motion.p>
         <motion.h2
           variants={fadeUp}
-          className="text-6xl text-[#F0EFEB]"
+          className="text-5xl text-[#F0EFEB] md:text-6xl"
           style={{
             fontFamily: 'var(--font-bebas)',
             textShadow: '0 0 60px rgba(255,85,0,0.35)',

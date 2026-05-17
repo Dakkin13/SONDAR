@@ -4,12 +4,23 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import type { Message } from '@/types'
+import { useToast } from '@/components/ui/Toast'
 
 interface OtherProfile {
   id: string
   display_name: string | null
   avatar_url: string | null
+  instruments?: string[]
+  last_active?: string | null
+}
+
+interface ChatMessage {
+  id: string
+  created_at: string
+  from_id: string
+  to_id: string
+  content: string
+  read_at: string | null
 }
 
 function formatBubbleTime(iso: string): string {
@@ -29,113 +40,123 @@ function isSameDay(a: string, b: string) {
   return new Date(a).toDateString() === new Date(b).toDateString()
 }
 
-const bubbleIn = {
-  hidden: { opacity: 0, y: 10, scale: 0.97 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] as const } },
+function isGroupBreak(a: string, b: string): boolean {
+  return Math.abs(new Date(b).getTime() - new Date(a).getTime()) > 5 * 60 * 1000
+}
+
+function isActiveToday(lastActive: string | null | undefined): boolean {
+  if (!lastActive) return false
+  return Date.now() - new Date(lastActive).getTime() < 86400000
+}
+
+const INSTRUMENT_EMOJI: Record<string, string> = {
+  guitar: '🎸', bass: '🎸', drums: '🥁', keys: '🎹', piano: '🎹',
+  violin: '🎻', cello: '🎻', trumpet: '🎺', saxophone: '🎷', flute: '🪈',
+  vocals: '🎤', producer: '🎚️', dj: '🎧', other: '🎵',
 }
 
 export default function ChatPage() {
-  const { userId: otherId } = useParams<{ userId: string }>()
+  const { userId: otherUserId } = useParams<{ userId: string }>()
   const router = useRouter()
   const supabase = createClient()
+  const { toast } = useToast()
 
-  const [myId, setMyId] = useState<string | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [other, setOther] = useState<OtherProfile | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [draft, setDraft] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showConnection, setShowConnection] = useState(false)
 
+  const currentUserIdRef = useRef<string | null>(null)
+  const sentIds = useRef(new Set<string>())
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const myIdRef = useRef<string | null>(null)
+  const wasEmptyRef = useRef(true)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior })
   }, [])
 
-  // Mark all unread messages from other as read
-  const markRead = useCallback(async (uid: string) => {
-    await supabase
-      .from('messages')
-      .update({ read_at: new Date().toISOString() })
-      .eq('sender_id', otherId)
-      .eq('recipient_id', uid)
-      .is('read_at', null)
-  }, [otherId])
-
+  // ── Load current user + other profile + message history ──────────────────
   useEffect(() => {
     async function init() {
-      // Get current user
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
-      setMyId(user.id)
-      myIdRef.current = user.id
 
-      // Fetch other user's profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url')
-        .eq('id', otherId)
-        .single()
-      setOther(profile as OtherProfile | null)
+      setCurrentUserId(user.id)
+      currentUserIdRef.current = user.id
 
-      // Fetch message history
-      const { data: history } = await supabase
-        .from('messages')
-        .select('id, sender_id, recipient_id, content, created_at, read_at')
-        .or(
-          `and(sender_id.eq.${user.id},recipient_id.eq.${otherId}),and(sender_id.eq.${otherId},recipient_id.eq.${user.id})`
-        )
-        .order('created_at', { ascending: true })
+      const [profileRes, historyRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url, instruments, last_active')
+          .eq('id', otherUserId)
+          .single(),
+        supabase
+          .from('messages')
+          .select('id, from_id, to_id, content, created_at, read_at')
+          .or(
+            `and(from_id.eq.${user.id},to_id.eq.${otherUserId}),and(from_id.eq.${otherUserId},to_id.eq.${user.id})`
+          )
+          .order('created_at', { ascending: true }),
+      ])
 
-      setMessages((history as Message[]) ?? [])
+      if (profileRes.data) setOther(profileRes.data as OtherProfile)
+
+      const history = (historyRes.data as ChatMessage[]) ?? []
+      wasEmptyRef.current = history.length === 0
+      setMessages(history)
       setLoading(false)
 
-      // Mark messages as read
-      await markRead(user.id)
+      // Mark incoming as read
+      void supabase
+        .from('messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('from_id', otherUserId)
+        .eq('to_id', user.id)
+        .is('read_at', null)
     }
     void init()
-  }, [otherId])
+  }, [otherUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Scroll to bottom on initial load
+  // ── Scroll to bottom after initial load ──────────────────────────────────
   useEffect(() => {
     if (!loading) scrollToBottom('instant' as ScrollBehavior)
-  }, [loading])
+  }, [loading, scrollToBottom])
 
-  // Realtime subscription
+  // ── Realtime — ONLY for messages from the other person ───────────────────
   useEffect(() => {
+    if (!currentUserId) return
+
     const channel = supabase
-      .channel(`chat:${[myIdRef.current, otherId].sort().join(':')}`)
+      .channel(`chat-${currentUserId}-${otherUserId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          // Filter handled client-side since Supabase Realtime filter syntax varies
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          const msg = payload.new as Message
-          const isRelevant =
-            (msg.sender_id === myIdRef.current && msg.recipient_id === otherId) ||
-            (msg.sender_id === otherId && msg.recipient_id === myIdRef.current)
+          const msg = payload.new as ChatMessage
+          // Use ref to avoid stale closure — currentUserId is stable after init
+          const myId = currentUserIdRef.current
+          if (!myId) return
 
-          if (!isRelevant) return
+          // Only add if from the other person to us — our own sends are
+          // already in state via optimistic update + insert response
+          if (msg.from_id !== otherUserId || msg.to_id !== myId) return
+          // Skip if we already have this message (belt-and-suspenders)
+          if (sentIds.current.has(msg.id)) return
 
-          setMessages((prev) => {
-            // Deduplicate: if we already have this id (optimistic), skip
-            if (prev.some((m) => m.id === msg.id)) return prev
+          setMessages(prev => {
+            if (prev.some(m => m.id === msg.id)) return prev
             return [...prev, msg]
           })
 
-          // Mark as read if incoming
-          if (msg.sender_id === otherId && myIdRef.current) {
-            void supabase
-              .from('messages')
-              .update({ read_at: new Date().toISOString() })
-              .eq('id', msg.id)
-          }
+          // Mark as read immediately
+          void supabase
+            .from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', msg.id)
 
           scrollToBottom()
         }
@@ -143,111 +164,202 @@ export default function ChatPage() {
       .subscribe()
 
     return () => { void supabase.removeChannel(channel) }
-  }, [otherId, scrollToBottom])
+  }, [currentUserId, otherUserId, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Scroll to bottom whenever messages array grows
+  // ── Scroll on new messages ────────────────────────────────────────────────
   useEffect(() => {
-    if (messages.length > 0) scrollToBottom()
-  }, [messages.length])
+    if (messages.length > 0 && !loading) scrollToBottom()
+  }, [messages.length, loading, scrollToBottom])
 
-  async function sendMessage() {
-    if (!draft.trim() || !myId || sending) return
-    const content = draft.trim()
-    setDraft('')
+  // ── Send ─────────────────────────────────────────────────────────────────
+  const handleSend = async () => {
+    const content = input.trim()
+    if (!content || !currentUserId || sending) return
+
     setSending(true)
+    setInput('')
+    const wasEmpty = wasEmptyRef.current
 
-    // Optimistic insert
-    const optimisticId = `opt-${Date.now()}`
-    const optimistic: Message = {
-      id: optimisticId,
-      sender_id: myId,
-      recipient_id: otherId,
+    // Optimistic message
+    const tempId = `temp-${Date.now()}`
+    const tempMsg: ChatMessage = {
+      id: tempId,
+      from_id: currentUserId,
+      to_id: otherUserId,
       content,
       created_at: new Date().toISOString(),
       read_at: null,
     }
-    setMessages((prev) => [...prev, optimistic])
+    setMessages(prev => [...prev, tempMsg])
     scrollToBottom()
 
-    const { data: saved, error } = await supabase
+    const { data, error } = await supabase
       .from('messages')
-      .insert({ sender_id: myId, recipient_id: otherId, content })
+      .insert({ from_id: currentUserId, to_id: otherUserId, content })
       .select()
       .single()
 
     if (error) {
-      // Roll back optimistic message
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
-      setDraft(content)
-    } else if (saved) {
-      // Replace optimistic with real
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? (saved as Message) : m))
-      )
+      setMessages(prev => prev.filter(m => m.id !== tempId))
+      setInput(content)
+      toast('Could not send message: ' + error.message, 'error')
+    } else if (data) {
+      sentIds.current.add((data as ChatMessage).id)
+      setMessages(prev => prev.map(m => m.id === tempId ? (data as ChatMessage) : m))
+
+      if (wasEmpty) {
+        wasEmptyRef.current = false
+        setShowConnection(true)
+        setTimeout(() => setShowConnection(false), 2200)
+      }
     }
+
     setSending(false)
     inputRef.current?.focus()
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !sending) {
       e.preventDefault()
-      void sendMessage()
+      void handleSend()
     }
   }
 
+  const active = isActiveToday(other?.last_active)
   const initials = (other?.display_name ?? '?')
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+    .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  const primaryInstrument = other?.instruments?.[0]
 
   return (
-    <div className="flex h-screen flex-col bg-[#0D0D0D]">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-3 backdrop-blur-md">
+    <div className="flex flex-col bg-[#0D0D0D]" style={{ height: '100dvh' }}>
+
+      {/* Connection overlay */}
+      <AnimatePresence>
+        {showConnection && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-[#0D0D0D]"
+          >
+            <div className="flex items-center gap-8 mb-8">
+              <motion.div
+                initial={{ x: -40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
+                className="h-16 w-16 overflow-hidden rounded-full border-2 bg-[#1a1a1a]"
+                style={{ borderColor: 'rgba(255,92,0,0.5)', boxShadow: '0 0 24px rgba(255,92,0,0.3)' }}
+              >
+                {other?.avatar_url && <img src={other.avatar_url} alt="" className="h-full w-full object-cover" />}
+              </motion.div>
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: [0, 1.3, 1] }}
+                transition={{ delay: 0.35, duration: 0.4 }}
+                className="h-3 w-3 rounded-full bg-[#FF5C00]"
+                style={{ boxShadow: '0 0 12px rgba(255,92,0,0.8)' }}
+              />
+              <motion.div
+                initial={{ x: 40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
+                className="h-16 w-16 overflow-hidden rounded-full border-2 bg-[#1a1a1a]"
+                style={{ borderColor: 'rgba(91,33,182,0.5)', boxShadow: '0 0 24px rgba(91,33,182,0.3)' }}
+              />
+            </div>
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 0.4 }}
+              className="text-[#F0EFEB]"
+              style={{ fontFamily: 'var(--font-bebas)', fontSize: 40, letterSpacing: '0.08em' }}
+            >
+              CONNECTION MADE.
+            </motion.p>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              transition={{ delay: 0.7, duration: 0.4 }}
+              className="text-sm text-[rgba(240,239,235,0.4)] mt-2"
+            >
+              Make some noise.
+            </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div
+        className="flex-shrink-0 px-4"
+        style={{
+          background: 'rgba(13,13,13,0.92)',
+          backdropFilter: 'blur(48px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(48px) saturate(180%)',
+          borderBottom: '0.5px solid rgba(255,255,255,0.08)',
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+          paddingBottom: 12,
+        }}
+      >
         <div className="mx-auto flex max-w-lg items-center gap-3">
           <button
             onClick={() => router.push('/messages')}
-            className="flex-shrink-0 text-sm text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
+            className="flex-shrink-0 text-[rgba(240,239,235,0.5)] transition-colors hover:text-[#F0EFEB]"
+            style={{ fontSize: 22, lineHeight: 1 }}
+            aria-label="Back"
           >
-            ←
+            ‹
           </button>
 
-          {/* Avatar */}
           <button
-            onClick={() => router.push(`/profile/${otherId}`)}
-            className="flex-shrink-0"
+            onClick={() => router.push(`/profile/${otherUserId}`)}
+            className="flex-shrink-0 relative"
           >
             {other?.avatar_url ? (
               <img
                 src={other.avatar_url}
                 alt={other.display_name ?? 'User'}
-                className="h-9 w-9 rounded-full object-cover"
+                style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover',
+                  border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)' }}
               />
             ) : (
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1a1a1a]">
+              <div
+                className="flex items-center justify-center"
+                style={{ width: 38, height: 38, borderRadius: '50%', background: '#1a1a1a',
+                  border: '2px solid rgba(240,239,235,0.1)' }}
+              >
                 <span className="font-[family-name:var(--font-bebas)] text-sm text-[rgba(240,239,235,0.4)]">
                   {initials}
                 </span>
               </div>
             )}
+            {active && (
+              <span style={{
+                position: 'absolute', bottom: 0, right: 0,
+                width: 10, height: 10, borderRadius: '50%',
+                background: '#34d399', border: '1.5px solid #0D0D0D',
+              }} />
+            )}
           </button>
 
-          {/* Name */}
           <button
-            onClick={() => router.push(`/profile/${otherId}`)}
+            onClick={() => router.push(`/profile/${otherUserId}`)}
             className="min-w-0 flex-1 text-left"
           >
             <p className="truncate font-[family-name:var(--font-bebas)] text-xl tracking-widest text-[#F0EFEB]">
               {other?.display_name?.toUpperCase() ?? 'LOADING…'}
             </p>
+            <p className="text-[11px] text-[rgba(240,239,235,0.35)]">
+              {primaryInstrument
+                ? `${INSTRUMENT_EMOJI[primaryInstrument] ?? '🎵'} ${primaryInstrument}`
+                : active ? 'Active today' : ''}
+              {active && primaryInstrument ? ' · Active today' : ''}
+            </p>
           </button>
         </div>
       </div>
 
-      {/* Messages list */}
+      {/* ── Messages list ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto max-w-lg">
           {loading ? (
@@ -266,13 +378,13 @@ export default function ChatPage() {
           ) : (
             <AnimatePresence initial={false}>
               {messages.map((msg, i) => {
-                const isMine = msg.sender_id === myId
-                const showDay =
-                  i === 0 || !isSameDay(messages[i - 1].created_at, msg.created_at)
+                const isMine = msg.from_id === currentUserId
+                const showDay = i === 0 || !isSameDay(messages[i - 1].created_at, msg.created_at)
+                const showTime = i === 0 || showDay || isGroupBreak(messages[i - 1].created_at, msg.created_at)
+                const isTemp = msg.id.startsWith('temp-')
 
                 return (
                   <div key={msg.id}>
-                    {/* Day separator */}
                     {showDay && (
                       <div className="my-4 flex items-center gap-3">
                         <div className="h-px flex-1 bg-[rgba(240,239,235,0.06)]" />
@@ -283,27 +395,30 @@ export default function ChatPage() {
                       </div>
                     )}
 
+                    {showTime && !showDay && (
+                      <p className="mb-1 mt-4 text-center text-[10px] text-[rgba(240,239,235,0.2)]">
+                        {formatBubbleTime(msg.created_at)}
+                      </p>
+                    )}
+
                     <motion.div
-                      variants={bubbleIn}
-                      initial="hidden"
-                      animate="show"
-                      className={`mb-2 flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: isTemp ? 0.65 : 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
+                      className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-                          isMine
-                            ? 'rounded-br-sm bg-[#FF5500] text-black'
-                            : 'glass rounded-bl-sm text-[#F0EFEB]'
-                        }`}
+                        className="max-w-[75%] px-4 py-2.5"
+                        style={{
+                          background: isMine ? '#FF5500' : 'rgba(255,255,255,0.09)',
+                          backdropFilter: isMine ? 'none' : 'blur(20px)',
+                          WebkitBackdropFilter: isMine ? 'none' : 'blur(20px)',
+                          border: isMine ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                          color: isMine ? '#000' : '#F0EFEB',
+                        }}
                       >
                         <p className="text-sm leading-relaxed">{msg.content}</p>
-                        <p
-                          className={`mt-1 text-right text-[10px] ${
-                            isMine ? 'text-[rgba(0,0,0,0.45)]' : 'text-[rgba(240,239,235,0.3)]'
-                          }`}
-                        >
-                          {formatBubbleTime(msg.created_at)}
-                        </p>
                       </div>
                     </motion.div>
                   </div>
@@ -315,37 +430,66 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Input bar */}
-      <div className="flex-shrink-0 border-t border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-3 backdrop-blur-md">
+      {/* ── Input bar ──────────────────────────────────────────────────── */}
+      <div
+        className="flex-shrink-0 px-4 pt-3"
+        style={{
+          background: 'rgba(13,13,13,0.92)',
+          backdropFilter: 'blur(48px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(48px) saturate(180%)',
+          borderTop: '0.5px solid rgba(255,255,255,0.08)',
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+        }}
+      >
         <div className="mx-auto flex max-w-lg items-end gap-3">
           <textarea
             ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            value={input}
+            onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message…"
+            placeholder="Message…"
             rows={1}
-            className="flex-1 resize-none rounded-xl border border-[rgba(240,239,235,0.1)] bg-[rgba(240,239,235,0.05)] px-4 py-3 text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.25)] outline-none transition-colors focus:border-[rgba(255,85,0,0.4)] focus:bg-[rgba(240,239,235,0.07)]"
-            style={{ maxHeight: '120px', overflowY: 'auto' }}
-            onInput={(e) => {
+            className="flex-1 resize-none text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.25)] outline-none"
+            style={{
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 20,
+              padding: '10px 16px',
+              maxHeight: 120,
+              overflowY: 'auto',
+            }}
+            onInput={e => {
               const el = e.currentTarget
               el.style.height = 'auto'
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`
             }}
           />
-          <button
-            onClick={() => void sendMessage()}
-            disabled={!draft.trim() || sending}
-            className="flex-shrink-0 rounded-xl bg-[#FF5500] p-3 shadow-[0_0_12px_rgba(255,85,0,0.3)] transition-opacity hover:opacity-90 disabled:opacity-30"
+          <motion.button
+            onClick={() => { try { navigator.vibrate?.(10) } catch {} ; void handleSend() }}
+            disabled={!input.trim() || sending}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.92 }}
+            style={{
+              flexShrink: 0,
+              width: 38, height: 38,
+              borderRadius: '50%',
+              background: input.trim() ? '#FF5500' : 'rgba(255,255,255,0.08)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: input.trim() ? '0 0 12px rgba(255,85,0,0.35)' : 'none',
+              transition: 'background 0.2s, box-shadow 0.2s',
+            }}
             aria-label="Send"
           >
-            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-black" stroke="currentColor" strokeWidth={2}>
+            <svg viewBox="0 0 24 24" fill="none" style={{ width: 18, height: 18 }}
+              stroke={input.trim() ? '#000' : 'rgba(240,239,235,0.3)'} strokeWidth={2.5}>
               <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none"
+                style={{ color: input.trim() ? '#000' : 'rgba(240,239,235,0.3)' }} />
             </svg>
-          </button>
+          </motion.button>
         </div>
       </div>
+
     </div>
   )
 }

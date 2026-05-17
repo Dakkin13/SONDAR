@@ -10,6 +10,10 @@ const withPWA = require('next-pwa')({
   disable: process.env.NODE_ENV === 'development',
 })
 
-const nextConfig: NextConfig = {}
+const nextConfig: NextConfig = {
+  // Empty turbopack config silences the "webpack config present" error in dev.
+  // next-pwa v5 injects webpack config but is disabled in development anyway.
+  turbopack: {},
+}
 
 export default withPWA(nextConfig)

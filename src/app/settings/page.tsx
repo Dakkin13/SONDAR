@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
@@ -22,9 +22,10 @@ interface SettingsForm {
   audioLink: string
   instagramUrl: string
   avatarUrl: string | null
+  photoUrls: string[]
   instruments: Instrument[]
   genres: Genre[]
-  objectives: Objective[]
+  objective: Objective | null
   level: Level | null
   availability: Availability[]
 }
@@ -63,16 +64,26 @@ const GENRES: { value: Genre; label: string }[] = [
   { value: 'funk', label: 'Funk' },
 ]
 
+// Only the 4 values that exist in the DB objective_type enum
 const OBJECTIVES: { value: Objective; label: string; emoji: string; subtitle: string }[] = [
   { value: 'jam', label: 'Casual jam', emoji: '🎶', subtitle: 'Low-key sessions, no pressure' },
   { value: 'form-band', label: 'Form a band', emoji: '🤘', subtitle: 'Build something serious together' },
   { value: 'record', label: 'Studio sessions', emoji: '🎙️', subtitle: 'Record and produce original music' },
   { value: 'perform-live', label: 'Live gigs', emoji: '🎤', subtitle: 'Hit stages and perform live' },
-  { value: 'collaborate', label: 'Collaborate', emoji: '🤝', subtitle: 'Co-write and create together' },
-  { value: 'teach', label: 'Teach', emoji: '📖', subtitle: 'Share your knowledge' },
-  { value: 'learn', label: 'Learn', emoji: '🎓', subtitle: 'Level up your playing' },
-  { value: 'session-work', label: 'Session work', emoji: '🎚️', subtitle: 'Paid gigs and studio work' },
 ]
+
+// Maps form values → DB enum values (objective_type uses underscores)
+function toObjectiveEnum(value: Objective | null): string | null {
+  if (!value) return null
+  const map: Record<string, string> = {
+    'jam':          'casual_jam',
+    'casual-jam':   'casual_jam',
+    'form-band':    'form_band',
+    'record':       'studio_sessions',
+    'perform-live': 'live_gigs',
+  }
+  return map[value] ?? value
+}
 
 const LEVELS: { value: Level; label: string }[] = [
   { value: 'beginner', label: 'Beginner' },
@@ -159,10 +170,13 @@ function DeleteModal({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+const MAX_ADDITIONAL = 6
+
 export default function SettingsPage() {
   const router = useRouter()
   const supabase = createClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef  = useRef<HTMLInputElement>(null)
+  const addPhotoRef   = useRef<HTMLInputElement>(null)
 
   const [userId, setUserId] = useState<string | null>(null)
   const [form, setForm] = useState<SettingsForm>({
@@ -174,9 +188,10 @@ export default function SettingsPage() {
     audioLink: '',
     instagramUrl: '',
     avatarUrl: null,
+    photoUrls: [],
     instruments: [],
     genres: [],
-    objectives: [],
+    objective: null,
     level: null,
     availability: [],
   })
@@ -184,11 +199,12 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const [localPreview, setLocalPreview] = useState<string | null>(null)
-  const [showDelete, setShowDelete] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const [uploading, setUploading]         = useState(false)
+  const [uploadError, setUploadError]     = useState<string | null>(null)
+  const [localPreview, setLocalPreview]   = useState<string | null>(null)
+  const [addingPhoto, setAddingPhoto]     = useState(false)
+  const [showDelete, setShowDelete]       = useState(false)
+  const [deleting, setDeleting]           = useState(false)
 
   function patch<K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -209,7 +225,7 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('display_name, city, lat, lng, bio, audio_url, instagram_url, avatar_url, instruments, genres, objective, level, availability')
+        .select('display_name, city, bio, audio_url, instagram_url, avatar_url, photo_urls, instruments, genres, objective, level, availability')
         .eq('id', user.id)
         .single()
 
@@ -217,15 +233,16 @@ export default function SettingsPage() {
         setForm({
           displayName: data.display_name ?? '',
           city: data.city ?? '',
-          locationLat: data.lat ?? null,
-          locationLng: data.lng ?? null,
+          locationLat: null,
+          locationLng: null,
           bio: data.bio ?? '',
           audioLink: data.audio_url ?? '',
           instagramUrl: data.instagram_url ?? '',
           avatarUrl: data.avatar_url ?? null,
+          photoUrls: (data.photo_urls as string[]) ?? [],
           instruments: (data.instruments as Instrument[]) ?? [],
           genres: (data.genres as Genre[]) ?? [],
-          objectives: (data.objective as Objective[]) ?? [],
+          objective: (data.objective as Objective | null) ?? null,
           level: (data.level as Level | null) ?? null,
           availability: (data.availability as Availability[]) ?? [],
         })
@@ -268,6 +285,32 @@ export default function SettingsPage() {
     }
   }
 
+  // ── Additional photo upload ───────────────────────────────────────────────────
+  const handleAddPhoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !userId || form.photoUrls.length >= MAX_ADDITIONAL) return
+    setAddingPhoto(true)
+    try {
+      const ts   = Date.now()
+      const ext  = file.name.split('.').pop() ?? 'jpg'
+      const path = `${userId}/photos/${ts}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`
+      const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+      if (uploadErr) throw uploadErr
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      patch('photoUrls', [...form.photoUrls, data.publicUrl])
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Photo upload failed')
+    } finally {
+      setAddingPhoto(false)
+      if (addPhotoRef.current) addPhotoRef.current.value = ''
+    }
+  }, [userId, form.photoUrls, supabase]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function deletePhoto(idx: number) {
+    patch('photoUrls', form.photoUrls.filter((_, i) => i !== idx))
+    setSaved(false)
+  }
+
   // ── Save profile ──────────────────────────────────────────────────────────────
   async function handleSave() {
     if (!userId || saving) return
@@ -279,26 +322,36 @@ export default function SettingsPage() {
       id: userId,
       display_name: form.displayName || null,
       city: form.city || null,
-      lat: form.locationLat,
-      lng: form.locationLng,
       bio: form.bio || null,
       audio_url: form.audioLink || null,
       instagram_url: form.instagramUrl || null,
       avatar_url: form.avatarUrl,
+      photo_urls: form.photoUrls,
       instruments: form.instruments,
       genres: form.genres,
-      objective: form.objectives,
+      objective: toObjectiveEnum(form.objective),
       level: form.level,
       availability: form.availability,
-      updated_at: new Date().toISOString(),
     })
 
     if (upsertErr) {
       setError(upsertErr.message)
-    } else {
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      setSaving(false)
+      return
     }
+
+    // Update PostGIS location if coordinates changed
+    if (form.locationLat !== null && form.locationLng !== null) {
+      const { error: locationError } = await supabase.rpc('set_user_location', {
+        user_id: userId,
+        lat: form.locationLat,
+        lng: form.locationLng,
+      })
+      if (locationError) console.warn('Location RPC failed (non-fatal):', locationError.message)
+    }
+
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
     setSaving(false)
   }
 
@@ -317,7 +370,7 @@ export default function SettingsPage() {
     await supabase.from('profiles').delete().eq('id', userId)
     // Sign out (auth.users row requires service-role to delete — profile data is cleared)
     await supabase.auth.signOut()
-    router.push('/')
+    router.push('/login')
   }
 
   const displayAvatar = localPreview ?? form.avatarUrl
@@ -385,7 +438,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mx-auto max-w-lg px-4 py-8 space-y-10">
+        <div className="mx-auto max-w-lg px-4 py-5 space-y-6">
 
           {/* ── Photo ─────────────────────────────────────────────────────────── */}
           <section>
@@ -433,6 +486,43 @@ export default function SettingsPage() {
                 onChange={(e) => void handleAvatarChange(e)}
               />
             </div>
+          </section>
+
+          {/* ── Additional photos ─────────────────────────────────────────────── */}
+          <section>
+            <SectionLabel>Additional photos <span className="normal-case font-normal text-[rgba(240,239,235,0.2)]">(up to {MAX_ADDITIONAL})</span></SectionLabel>
+            <div className="flex flex-wrap gap-3">
+              {form.photoUrls.map((url, i) => (
+                <div key={url + i} className="relative h-20 w-20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Photo ${i + 1}`} className="h-full w-full rounded-xl object-cover" />
+                  <button
+                    onClick={() => deletePhoto(i)}
+                    className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black text-[11px] font-bold text-white"
+                    style={{ border: '1.5px solid rgba(240,239,235,0.3)' }}
+                    aria-label="Remove photo"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {form.photoUrls.length < MAX_ADDITIONAL && (
+                <button
+                  onClick={() => addPhotoRef.current?.click()}
+                  disabled={addingPhoto}
+                  className="flex h-20 w-20 items-center justify-center rounded-xl"
+                  style={{ border: '1.5px dashed rgba(240,239,235,0.15)', background: 'rgba(240,239,235,0.03)' }}
+                  aria-label="Add photo"
+                >
+                  {addingPhoto
+                    ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    : <span className="text-xl text-[rgba(240,239,235,0.2)]">+</span>
+                  }
+                </button>
+              )}
+            </div>
+            <input ref={addPhotoRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => void handleAddPhoto(e)} />
           </section>
 
           {/* ── Profile details ────────────────────────────────────────────────── */}
@@ -562,18 +652,12 @@ export default function SettingsPage() {
             <SectionLabel>Looking for</SectionLabel>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {OBJECTIVES.map(({ value, label, emoji, subtitle }) => {
-                const selected = form.objectives.includes(value)
+                const selected = form.objective === value
                 return (
                   <button
                     key={value}
-                    onClick={() =>
-                      patch(
-                        'objectives',
-                        selected
-                          ? form.objectives.filter((o) => o !== value)
-                          : [...form.objectives, value],
-                      )
-                    }
+                    onClick={() => patch('objective', selected ? null : value)}
+
                     className={cn(
                       'flex items-start gap-4 rounded-2xl px-5 py-4 text-left transition-all duration-200',
                       selected
@@ -644,7 +728,7 @@ export default function SettingsPage() {
           </section>
 
           {/* ── Account actions ────────────────────────────────────────────────── */}
-          <section className="space-y-3 border-t border-[rgba(240,239,235,0.06)] pt-8">
+          <section className="space-y-3 border-t border-[rgba(240,239,235,0.06)] pt-4">
             <SectionLabel>Account</SectionLabel>
 
             <button
@@ -667,7 +751,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Fixed save bar (mobile) — mirrors header save button for long pages */}
-      <div className="fixed bottom-0 left-0 right-0 border-t border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-4 backdrop-blur-md">
+      <div className="fixed bottom-0 left-0 right-0 border-t border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 pt-4 backdrop-blur-md" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}>
         <div className="mx-auto max-w-lg">
           <button
             onClick={() => void handleSave()}

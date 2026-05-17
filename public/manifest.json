@@ -1,6 +1,6 @@
 {
-  "name": "Sonus",
-  "short_name": "Sonus",
+  "name": "Sondar",
+  "short_name": "Sondar",
   "description": "Find musicians near you",
   "start_url": "/",
   "display": "standalone",

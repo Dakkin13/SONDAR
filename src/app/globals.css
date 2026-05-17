@@ -15,15 +15,19 @@
   --font-sans: var(--font-dm-sans);
 }
 
-html,
-body {
+html {
   background-color: #0D0D0D;
   color: #F0EFEB;
   min-height: 100%;
+  overflow-x: clip;
+  scroll-behavior: smooth;
 }
 
 body {
+  background-color: #0D0D0D;
+  min-height: 100%;
   position: relative;
+  /* Do NOT set overflow-x/y: hidden here — it breaks position:fixed on iOS Safari */
 }
 
 body::after {
@@ -33,20 +37,96 @@ body::after {
   pointer-events: none;
   z-index: 9999;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-  opacity: 0.028;
+  opacity: 0.025;
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  position: relative;
   isolation: isolate;
+  border-radius: 20px;
+  -webkit-backdrop-filter: blur(40px) saturate(200%) brightness(1.05);
+  backdrop-filter: blur(40px) saturate(200%) brightness(1.05);
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.10) 0%,
+    rgba(255,255,255,0.04) 40%,
+    rgba(255,255,255,0.07) 100%
+  );
+  border: 1px solid rgba(255,255,255,0.15);
+  border-top-color: rgba(255,255,255,0.30);
+  border-left-color: rgba(255,255,255,0.20);
+  border-right-color: rgba(255,255,255,0.07);
+  border-bottom-color: rgba(255,255,255,0.05);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.28),
+    inset 0 -1px 0 rgba(0,0,0,0.15),
+    inset 1px 0 0 rgba(255,255,255,0.12),
+    inset 0 0 20px -8px rgba(255,255,255,0.12),
+    0 8px 32px rgba(0,0,0,0.28),
+    0 2px 8px rgba(0,0,0,0.20),
+    0 0 0 0.5px rgba(255,255,255,0.06);
 }
 
-@keyframes sonus-ping {
+.glass-apple {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255,255,255,0.12) 0%,
+      rgba(255,255,255,0.04) 50%,
+      rgba(255,255,255,0.08) 100%
+    );
+  -webkit-backdrop-filter: blur(48px) saturate(180%);
+  backdrop-filter: blur(48px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-bottom-color: rgba(255,255,255,0.06);
+  border-right-color: rgba(255,255,255,0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    inset 0 -1px 0 rgba(0,0,0,0.10),
+    0 8px 32px rgba(0,0,0,0.24),
+    0 2px 8px rgba(0,0,0,0.16);
+  border-radius: 20px;
+}
+
+.glass-apple-subtle {
+  background: rgba(255,255,255,0.06);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  backdrop-filter: blur(32px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    0 4px 16px rgba(0,0,0,0.18);
+  border-radius: 16px;
+}
+
+@keyframes sondar-ping {
   0%   { transform: scale(1);   opacity: 0.7; }
   80%  { transform: scale(2.4); opacity: 0;   }
   100% { transform: scale(2.4); opacity: 0;   }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Remove 300ms tap delay and ensure clickability on iOS Safari */
+button,
+a,
+[role="button"],
+input,
+textarea,
+select,
+label {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* Prevent iOS Safari from zooming in on focused inputs (requires ≥16px) */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }

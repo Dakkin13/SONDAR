@@ -4,32 +4,51 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import BottomNav from '@/components/ui/BottomNav'
 
-interface Conversation {
-  otherId: string
-  otherName: string | null
-  otherAvatar: string | null
-  lastMessage: string
-  lastAt: string
-  unread: boolean
+interface ConversationPartner {
+  id: string
+  display_name: string | null
+  avatar_url: string | null
+  instruments: string[]
+  last_active: string | null
 }
 
-function formatTime(iso: string): string {
+interface Conversation {
+  partner: ConversationPartner
+  lastContent: string
+  lastAt: string
+  lastFromMe: boolean
+  unreadCount: number
+}
+
+const INSTRUMENT_EMOJI: Record<string, string> = {
+  guitar: '🎸', bass: '🎸', drums: '🥁', keys: '🎹', piano: '🎹',
+  violin: '🎻', cello: '🎻', trumpet: '🎺', saxophone: '🎷', flute: '🪈',
+  vocals: '🎤', producer: '🎚️', dj: '🎧', other: '🎵',
+}
+
+function formatRelativeTime(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  const diffMs = now.getTime() - d.getTime()
+  const diffDays = Math.floor(diffMs / 86400000)
   if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
+function isActiveToday(lastActive: string | null): boolean {
+  if (!lastActive) return false
+  return Date.now() - new Date(lastActive).getTime() < 86400000
+}
+
 const fadeUp = {
-  hidden: { opacity: 0, y: 12 },
+  hidden: { opacity: 0, y: 10 },
   show: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.35, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] as const },
+    opacity: 1, y: 0,
+    transition: { duration: 0.32, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] as const },
   }),
 }
 
@@ -47,77 +66,100 @@ export default function MessagesPage() {
       if (!user) { router.push('/login'); return }
       setUserId(user.id)
 
-      // Fetch all messages where user is sender or recipient
+      // Fetch all messages using correct column names (from_id / to_id)
       const { data: msgs } = await supabase
         .from('messages')
-        .select('id, sender_id, recipient_id, content, created_at, read_at')
-        .or(`sender_id.eq.${user.id},recipient_id.eq.${user.id}`)
+        .select('id, from_id, to_id, content, created_at, read_at')
+        .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
 
       if (!msgs || msgs.length === 0) { setLoading(false); return }
 
-      // Group by conversation partner — keep only the most recent message per partner
+      // Group by conversation partner — keep most recent message per partner
       const seen = new Map<string, typeof msgs[0]>()
+      const unreadMap = new Map<string, number>()
+
       for (const m of msgs) {
-        const partner = m.sender_id === user.id ? m.recipient_id : m.sender_id
+        const partner = m.from_id === user.id ? m.to_id : m.from_id
         if (!seen.has(partner)) seen.set(partner, m)
+        // Count unread messages FROM other person
+        if (m.to_id === user.id && m.read_at === null) {
+          unreadMap.set(partner, (unreadMap.get(partner) ?? 0) + 1)
+        }
       }
 
-      // Fetch profiles for all partners
+      // Fetch partner profiles with instruments for chips
       const partnerIds = Array.from(seen.keys())
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url')
+        .select('id, display_name, avatar_url, instruments, last_active')
         .in('id', partnerIds)
 
-      const profileMap = new Map(profiles?.map((p) => [p.id, p]) ?? [])
+      const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
 
-      const convos: Conversation[] = Array.from(seen.entries()).map(([partnerId, msg]) => {
-        const profile = profileMap.get(partnerId)
-        const unread = msg.recipient_id === user.id && msg.read_at === null
-        return {
-          otherId: partnerId,
-          otherName: profile?.display_name ?? null,
-          otherAvatar: profile?.avatar_url ?? null,
-          lastMessage: msg.content,
-          lastAt: msg.created_at,
-          unread,
-        }
-      })
+      const convos: Conversation[] = Array.from(seen.entries())
+        .map(([partnerId, msg]) => {
+          const profile = profileMap.get(partnerId)
+          return {
+            partner: {
+              id: partnerId,
+              display_name: profile?.display_name ?? null,
+              avatar_url: profile?.avatar_url ?? null,
+              instruments: (profile?.instruments as string[]) ?? [],
+              last_active: profile?.last_active ?? null,
+            },
+            lastContent: msg.content,
+            lastAt: msg.created_at,
+            lastFromMe: msg.from_id === user.id,
+            unreadCount: unreadMap.get(partnerId) ?? 0,
+          }
+        })
+        .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime())
 
-      // Sort by most recent
-      convos.sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime())
       setConversations(convos)
       setLoading(false)
     }
     void load()
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="min-h-screen bg-[#0D0D0D]">
+    <div style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-4 backdrop-blur-md">
-        <div className="mx-auto flex max-w-lg items-center gap-3">
-          <button
-            onClick={() => router.push('/explore')}
-            className="text-sm text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
+      <div
+        className="sticky top-0 z-10 px-4 py-4"
+        style={{
+          background: 'rgba(13,13,13,0.92)',
+          backdropFilter: 'blur(48px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(48px) saturate(180%)',
+          borderBottom: '0.5px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div className="mx-auto max-w-lg">
+          <h1
+            className="text-[#F0EFEB]"
+            style={{ fontFamily: 'var(--font-bebas)', fontSize: 28, letterSpacing: '0.08em' }}
           >
-            ←
-          </button>
-          <h1 className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
             MESSAGES
           </h1>
+          {userId && conversations.length > 0 && (
+            <p className="text-[11px] text-[rgba(240,239,235,0.3)]">
+              {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mx-auto max-w-lg">
+      <div className="mx-auto max-w-lg px-4 pt-3 pb-24">
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
           </div>
         ) : conversations.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-24 text-center">
-            <p className="font-[family-name:var(--font-bebas)] text-3xl tracking-widest text-[rgba(240,239,235,0.2)]">
+            <p
+              className="text-[rgba(240,239,235,0.2)]"
+              style={{ fontFamily: 'var(--font-bebas)', fontSize: 28, letterSpacing: '0.08em' }}
+            >
               NO MESSAGES YET
             </p>
             <p className="text-sm text-[rgba(240,239,235,0.35)]">
@@ -131,78 +173,132 @@ export default function MessagesPage() {
             </button>
           </div>
         ) : (
-          <ul>
+          <div className="flex flex-col gap-2">
             {conversations.map((convo, i) => {
-              const initials = (convo.otherName ?? '?')
-                .split(' ')
-                .map((w) => w[0])
-                .join('')
-                .slice(0, 2)
-                .toUpperCase()
+              const { partner, lastContent, lastAt, lastFromMe, unreadCount } = convo
+              const active = isActiveToday(partner.last_active)
+              const initials = (partner.display_name ?? '?')
+                .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+              const hasUnread = unreadCount > 0
 
               return (
-                <motion.li
-                  key={convo.otherId}
+                <motion.button
+                  key={partner.id}
                   custom={i}
                   variants={fadeUp}
                   initial="hidden"
                   animate="show"
+                  onClick={() => router.push(`/messages/${partner.id}`)}
+                  className="w-full text-left transition-all duration-150"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 16px', borderRadius: 16,
+                    background: hasUnread
+                      ? 'rgba(255,92,0,0.06)'
+                      : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${hasUnread ? 'rgba(255,92,0,0.18)' : 'rgba(255,255,255,0.07)'}`,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = hasUnread
+                      ? 'rgba(255,92,0,0.06)' : 'rgba(255,255,255,0.04)'
+                  }}
                 >
-                  <button
-                    onClick={() => router.push(`/messages/${convo.otherId}`)}
-                    className="flex w-full items-center gap-3 border-b border-[rgba(240,239,235,0.05)] px-4 py-4 transition-colors hover:bg-[rgba(240,239,235,0.03)]"
-                  >
-                    {/* Avatar */}
-                    <div className="relative flex-shrink-0">
-                      {convo.otherAvatar ? (
-                        <img
-                          src={convo.otherAvatar}
-                          alt={convo.otherName ?? 'User'}
-                          className="h-12 w-12 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#1a1a1a]">
-                          <span className="font-[family-name:var(--font-bebas)] text-lg text-[rgba(240,239,235,0.4)]">
-                            {initials}
-                          </span>
+                  {/* Avatar + active dot */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    {partner.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={partner.avatar_url}
+                        alt={partner.display_name ?? ''}
+                        style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover',
+                          border: active ? '2px solid rgba(255,92,0,0.6)' : '2px solid rgba(240,239,235,0.1)' }}
+                      />
+                    ) : (
+                      <div
+                        className="flex items-center justify-center"
+                        style={{ width: 52, height: 52, borderRadius: '50%', background: '#1a1a1a',
+                          border: '2px solid rgba(240,239,235,0.1)' }}
+                      >
+                        <span
+                          className="text-[rgba(240,239,235,0.4)]"
+                          style={{ fontFamily: 'var(--font-bebas)', fontSize: 18 }}
+                        >
+                          {initials}
+                        </span>
+                      </div>
+                    )}
+                    {active && (
+                      <div style={{
+                        position: 'absolute', bottom: 2, right: 2,
+                        width: 12, height: 12, borderRadius: '50%',
+                        background: '#B8FF00', border: '2px solid #0D0D0D',
+                      }} />
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                      <span style={{
+                        fontWeight: hasUnread ? 700 : 500, fontSize: 15,
+                        color: hasUnread ? '#F0EFEB' : 'rgba(240,239,235,0.85)',
+                      }}>
+                        {partner.display_name ?? 'Unknown musician'}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'rgba(240,239,235,0.3)', flexShrink: 0 }}>
+                        {formatRelativeTime(lastAt)}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: 13,
+                        color: hasUnread ? 'rgba(240,239,235,0.65)' : 'rgba(240,239,235,0.35)',
+                        fontWeight: hasUnread ? 500 : 400,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        maxWidth: unreadCount > 0 ? '70%' : '100%',
+                      }}>
+                        {lastFromMe ? 'You: ' : ''}{lastContent}
+                      </span>
+                      {unreadCount > 0 && (
+                        <div style={{
+                          background: '#FF5C00', borderRadius: 99, minWidth: 20, height: 20,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, fontWeight: 700, color: '#000', padding: '0 6px',
+                          flexShrink: 0,
+                        }}>
+                          {unreadCount}
                         </div>
-                      )}
-                      {convo.unread && (
-                        <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-[#FF5500] shadow-[0_0_6px_rgba(255,85,0,0.7)]" />
                       )}
                     </div>
 
-                    {/* Text */}
-                    <div className="min-w-0 flex-1 text-left">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span
-                          className={`truncate text-sm font-semibold ${
-                            convo.unread ? 'text-[#F0EFEB]' : 'text-[rgba(240,239,235,0.75)]'
-                          }`}
-                        >
-                          {convo.otherName ?? 'Unknown musician'}
-                        </span>
-                        <span className="flex-shrink-0 text-[10px] text-[rgba(240,239,235,0.3)]">
-                          {formatTime(convo.lastAt)}
-                        </span>
+                    {/* Instrument chips */}
+                    {partner.instruments.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
+                        {partner.instruments.slice(0, 2).map(inst => (
+                          <span
+                            key={inst}
+                            style={{
+                              fontSize: 10, color: '#FF5C00',
+                              background: 'rgba(255,92,0,0.10)',
+                              padding: '1px 7px', borderRadius: 99,
+                            }}
+                          >
+                            {INSTRUMENT_EMOJI[inst] ?? '🎵'} {inst}
+                          </span>
+                        ))}
                       </div>
-                      <p
-                        className={`mt-0.5 truncate text-xs ${
-                          convo.unread
-                            ? 'font-medium text-[rgba(240,239,235,0.6)]'
-                            : 'text-[rgba(240,239,235,0.35)]'
-                        }`}
-                      >
-                        {convo.lastMessage}
-                      </p>
-                    </div>
-                  </button>
-                </motion.li>
+                    )}
+                  </div>
+                </motion.button>
               )
             })}
-          </ul>
+          </div>
         )}
       </div>
+
+      <BottomNav />
     </div>
   )
 }

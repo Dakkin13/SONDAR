@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Genre, Instrument, Objective } from '@/types'
@@ -9,10 +9,57 @@ import Step1 from '@/components/onboarding/Step1'
 import Step2 from '@/components/onboarding/Step2'
 import Step3 from '@/components/onboarding/Step3'
 import Confirmation from '@/components/onboarding/Confirmation'
-import OnboardingBackground from '@/components/onboarding/OnboardingBackground'
 
 type Level = 'beginner' | 'intermediate' | 'advanced' | 'professional'
 type Availability = 'weekday-evenings' | 'weekends' | 'flexible'
+
+// Maps form values → DB enum values (objective_type column uses underscores)
+function toObjectiveEnum(value: Objective | null): string | null {
+  if (!value) return null
+  const map: Record<string, string> = {
+    'jam':          'casual_jam',
+    'casual-jam':   'casual_jam',
+    'form-band':    'form_band',
+    'record':       'studio_sessions',
+    'studio-sessions': 'studio_sessions',
+    'perform-live': 'live_gigs',
+    'live-gigs':    'live_gigs',
+  }
+  return map[value] ?? value
+}
+
+function validateProfilePayload(payload: Record<string, unknown>): string[] {
+  const errors: string[] = []
+
+  if (!payload.id) errors.push('id is missing')
+  if (!payload.display_name || payload.display_name === '') errors.push('display_name is empty')
+  if (!payload.city || payload.city === '') errors.push('city is empty — user may not have selected a city from the autocomplete')
+
+  if (!Array.isArray(payload.instruments) || (payload.instruments as unknown[]).length === 0)
+    errors.push('instruments is empty or not an array')
+  if (!Array.isArray(payload.genres) || (payload.genres as unknown[]).length === 0)
+    errors.push('genres is empty or not an array')
+  if (!Array.isArray(payload.availability))
+    errors.push('availability is not an array')
+
+  const validLevels = ['beginner', 'intermediate', 'advanced', 'professional']
+  if (!validLevels.includes(payload.level as string))
+    errors.push(`level "${String(payload.level)}" is not a valid enum value`)
+
+  const validObjectives = ['casual_jam', 'form_band', 'studio_sessions', 'live_gigs']
+  if (!validObjectives.includes(payload.objective as string))
+    errors.push(`primary objective "${String(payload.objective)}" is not a valid enum value`)
+
+  const validInstruments = ['guitar', 'bass', 'drums', 'keys', 'vocals', 'violin', 'saxophone', 'trumpet', 'producer', 'dj', 'other']
+  const invalidInstruments = (payload.instruments as string[] ?? []).filter((i) => !validInstruments.includes(i))
+  if (invalidInstruments.length > 0)
+    errors.push(`invalid instrument values: ${invalidInstruments.join(', ')}`)
+
+  if (typeof payload.is_onboarded !== 'boolean')
+    errors.push('is_onboarded must be a boolean')
+
+  return errors
+}
 
 const TOTAL_STEPS = 4
 
@@ -30,30 +77,21 @@ interface FormState {
   audioLink: string
   instagramUrl: string
   avatarUrl: string | null
+  photoUrls: string[]
 }
 
-const slideVariants = {
-  enter: (direction: number) => ({
-    x: direction > 0 ? '60%' : '-60%',
-    opacity: 0,
-  }),
-  center: { x: 0, opacity: 1 },
-  exit: (direction: number) => ({
-    x: direction > 0 ? '-60%' : '60%',
-    opacity: 0,
-  }),
-}
-
-const slideTransition = { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const }
 
 export default function OnboardingPage() {
   const router = useRouter()
   const supabase = createClient()
 
   const [step, setStep] = useState(1)
-  const [direction, setDirection] = useState(1)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('sondar-step', { detail: { step } }))
+  }, [step])
 
   const [form, setForm] = useState<FormState>({
     instruments: [],
@@ -69,6 +107,7 @@ export default function OnboardingPage() {
     audioLink: '',
     instagramUrl: '',
     avatarUrl: null,
+    photoUrls: [],
   })
 
   function patch<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -80,7 +119,6 @@ export default function OnboardingPage() {
   }
 
   function go(next: number) {
-    setDirection(next > step ? 1 : -1)
     setStep(next)
   }
 
@@ -88,56 +126,95 @@ export default function OnboardingPage() {
     setSaving(true)
     setError(null)
     try {
-      // ── Step A: verify session ──────────────────────────────────────────────
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      if (userError) throw new Error('Auth error: ' + userError.message)
-      if (!user) throw new Error('No user found — not authenticated')
-      console.log('Step A ok — user id:', user.id)
-
-      // ── Step B: upsert profile ──────────────────────────────────────────────
-      // Column names match the DB schema:
-      //   city / lat / lng  (not location_name / location_lat / location_lng)
-      //   objective         (not objectives)
-      //   audio_url         (not audioLink)
-      const profileData = {
-        id: user.id,
-        display_name: form.displayName || null,
-        city: form.city || null,
-        lat: form.locationLat,
-        lng: form.locationLng,
-        bio: form.bio || null,
-        audio_url: form.audioLink || null,
-        avatar_url: form.avatarUrl,
-        instruments: form.instruments,
-        genres: form.genres,
-        objective: form.objectives,
-        level: form.level,
-        availability: form.availability,
-        instagram_url: form.instagramUrl || null,
-        is_onboarded: true,
-        updated_at: new Date().toISOString(),
+      // ── Step A: verify session with retry (OAuth sessions can take a moment) ─
+      let user = null
+      for (let attempts = 0; attempts < 3 && !user; attempts++) {
+        const { data: { user: u } } = await supabase.auth.getUser()
+        if (u) { user = u; break }
+        await new Promise<void>((resolve) => setTimeout(resolve, 500))
+      }
+      if (!user) {
+        await supabase.auth.refreshSession()
+        const { data: { user: refreshed } } = await supabase.auth.getUser()
+        if (!refreshed) throw new Error('Could not establish session. Please try signing in again.')
+        user = refreshed
       }
 
-      console.log('Step B — saving profile:', profileData)
+      // ── Step B: log raw form state ──────────────────────────────────────────
+      console.log('=== FORM STATE AT SUBMIT ===', JSON.stringify(form, null, 2))
 
-      const { data: savedProfile, error: upsertError } = await supabase
+      // ── Step C: build upsert payload ────────────────────────────────────────
+      // city: form.city is updated on every keystroke via CityAutocomplete onChange,
+      // so it holds the typed text even if the user never picks from the dropdown.
+      // Fall back to '' (matches DB DEFAULT '') rather than null.
+      //
+      // objective: mapped to DB enum (underscore format) via toObjectiveEnum().
+      // instruments/level: already match DB enum exactly — no mapping needed.
+      // Excluded: lat, lng, updated_at — not plain columns in this schema.
+      const primaryObjective = form.objectives[0] ?? null
+      const payload = {
+        id:              user.id,
+        display_name:   form.displayName || '',
+        city:           form.city || '',
+        bio:            form.bio || null,
+        audio_url:      form.audioLink || null,
+        avatar_url:     form.avatarUrl,
+        photo_urls:     form.photoUrls,
+        instruments:    form.instruments,
+        genres:         form.genres,
+        objective:      toObjectiveEnum(primaryObjective),
+        level:          form.level,
+        availability:   form.availability,
+        instagram_url:  form.instagramUrl || null,
+        is_onboarded:   true,
+      }
+
+      console.log('Upsert payload:', JSON.stringify(payload, null, 2))
+
+      // ── Step D: validate before hitting the DB ──────────────────────────────
+      const validationErrors = validateProfilePayload(payload as Record<string, unknown>)
+      if (validationErrors.length > 0) {
+        throw new Error('Validation failed:\n' + validationErrors.join('\n'))
+      }
+
+      // ── Step E: upsert profile ──────────────────────────────────────────────
+      const { error: upsertError } = await supabase
         .from('profiles')
-        .upsert(profileData)
-        .select()
-
-      console.log('Step B result:', { savedProfile, upsertError })
+        .upsert(payload, { onConflict: 'id' })
 
       if (upsertError) throw new Error('Upsert error: ' + upsertError.message)
-      console.log('Step B ok — profile saved')
+      console.log('Upsert ok')
 
-      // ── Step C: show confirmation then redirect ─────────────────────────────
+      // ── Step F: set PostGIS location (separate RPC — geography column) ───────
+      // Run this SQL once in Supabase SQL Editor before using:
+      //
+      //   CREATE OR REPLACE FUNCTION public.set_user_location(user_id uuid, lat float, lng float)
+      //   RETURNS void AS $$
+      //   BEGIN
+      //     UPDATE public.profiles
+      //     SET location = ST_MakePoint(lng, lat)::geography
+      //     WHERE id = user_id;
+      //   END;
+      //   $$ LANGUAGE plpgsql SECURITY DEFINER;
+      //
+      if (form.locationLat !== null && form.locationLng !== null) {
+        const { error: locationError } = await supabase.rpc('set_user_location', {
+          user_id: user.id,
+          lat: form.locationLat,
+          lng: form.locationLng,
+        })
+        if (locationError) console.warn('set_user_location failed (non-fatal):', locationError.message)
+        else console.log('Location set ok')
+      }
+
+      // ── Step G: show confirmation then trigger GlobalBackground bloom ─────
       go(4)
-      await new Promise<void>((resolve) => setTimeout(resolve, 2000))
-      console.log('Step C — redirecting to /explore')
-      router.push('/explore')
+      window.dispatchEvent(new CustomEvent('sondar-step', { detail: { step: 'complete' } }))
+      // Fallback: navigate after 2.5s if bloom doesn't trigger
+      setTimeout(() => router.push('/explore'), 2500)
+
     } catch (err) {
       console.error('handleFinish failed:', err)
-      // Supabase errors are PostgrestError (not Error instances) — extract message regardless
       const msg =
         err instanceof Error
           ? err.message
@@ -163,11 +240,7 @@ export default function OnboardingPage() {
 
   return (
     <>
-      {/* Canvas lives outside the content wrapper so it's in the root stacking
-          context at z-0; the wrapper below sits at z-1 above it. */}
-      <OnboardingBackground currentStep={step} />
-
-      <div className="relative flex min-h-screen flex-col" style={{ zIndex: 1 }}>
+      <div className="relative flex flex-col" style={{ zIndex: 1, minHeight: '100dvh' }}>
 
       {/* Full-width error banner — always visible when something fails */}
       {error && (
@@ -184,13 +257,26 @@ export default function OnboardingPage() {
 
       {/* Progress bar */}
       {step < TOTAL_STEPS && (
-        <div className="fixed left-0 right-0 top-0 z-50 h-[2px] bg-[rgba(240,239,235,0.08)]">
+        <div className="fixed left-0 right-0 top-0 z-50 h-[3px] bg-[rgba(240,239,235,0.08)]">
           <motion.div
             className="h-full bg-[#FF5500] shadow-[0_0_8px_rgba(255,85,0,0.6)]"
             animate={{ width: `${progressPct}%` }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           />
         </div>
+      )}
+
+      {/* Sign-out link — top-left, only during active steps */}
+      {step < TOTAL_STEPS && (
+        <button
+          type="button"
+          onClick={async () => { await supabase.auth.signOut(); window.location.href = '/login' }}
+          onTouchEnd={async (e) => { e.preventDefault(); await supabase.auth.signOut(); window.location.href = '/login' }}
+          style={{ touchAction: 'manipulation' }}
+          className="fixed left-4 top-4 z-50 text-xs text-[rgba(240,239,235,0.28)] hover:text-[rgba(240,239,235,0.6)] transition-colors"
+        >
+          Sign out
+        </button>
       )}
 
       {/* Step counter */}
@@ -200,88 +286,96 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      {/* Step content */}
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16">
-        <div className="w-full max-w-lg overflow-hidden">
-          <AnimatePresence mode="wait" custom={direction}>
-            <motion.div
-              key={step}
-              custom={direction}
-              variants={slideVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={slideTransition}
-            >
-              {step === 1 && (
-                <Step1
-                  instruments={form.instruments}
-                  genres={form.genres}
-                  onInstrumentsChange={(v) => patch('instruments', v)}
-                  onGenresChange={(v) => patch('genres', v)}
-                />
-              )}
-              {step === 2 && (
-                <Step2
-                  objectives={form.objectives}
-                  level={form.level}
-                  availability={form.availability}
-                  onObjectivesChange={(v) => patch('objectives', v)}
-                  onLevelChange={(v) => patch('level', v)}
-                  onAvailabilityChange={(v) => patch('availability', v)}
-                />
-              )}
-              {step === 3 && (
-                <Step3
-                  displayName={form.displayName}
-                  city={form.city}
-                  bio={form.bio}
-                  audioLink={form.audioLink}
-                  instagramUrl={form.instagramUrl}
-                  avatarUrl={form.avatarUrl}
-                  onDisplayNameChange={(v) => patch('displayName', v)}
-                  onCityChange={(v) => patch('city', v)}
-                  onCitySelect={handleCitySelect}
-                  onBioChange={(v) => patch('bio', v)}
-                  onAudioLinkChange={(v) => patch('audioLink', v)}
-                  onInstagramUrlChange={(v) => patch('instagramUrl', v)}
-                  onAvatarUrlChange={(v) => patch('avatarUrl', v)}
-                />
-              )}
-              {step === 4 && (
-                <Confirmation
-                  displayName={form.displayName}
-                  city={form.city}
-                  bio={form.bio}
-                  instruments={form.instruments}
-                  genres={form.genres}
-                  objectives={form.objectives}
-                  avatarUrl={form.avatarUrl}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
+      {/* Step content — plain div, no framer-motion slide (iOS Safari stalls x-transforms) */}
+      <div className="flex flex-1 flex-col items-center justify-center px-4"
+           style={{ paddingTop: 60, paddingBottom: 100 }}>
+        <div className="w-full max-w-lg">
+          {step === 1 && (
+            <Step1
+              instruments={form.instruments}
+              genres={form.genres}
+              onInstrumentsChange={(v) => patch('instruments', v)}
+              onGenresChange={(v) => patch('genres', v)}
+            />
+          )}
+          {step === 2 && (
+            <Step2
+              objectives={form.objectives}
+              level={form.level}
+              availability={form.availability}
+              onObjectivesChange={(v) => patch('objectives', v)}
+              onLevelChange={(v) => patch('level', v)}
+              onAvailabilityChange={(v) => patch('availability', v)}
+            />
+          )}
+          {step === 3 && (
+            <Step3
+              displayName={form.displayName}
+              city={form.city}
+              bio={form.bio}
+              audioLink={form.audioLink}
+              instagramUrl={form.instagramUrl}
+              avatarUrl={form.avatarUrl}
+              photoUrls={form.photoUrls}
+              onDisplayNameChange={(v) => patch('displayName', v)}
+              onCityChange={(v) => patch('city', v)}
+              onCitySelect={handleCitySelect}
+              onBioChange={(v) => patch('bio', v)}
+              onAudioLinkChange={(v) => patch('audioLink', v)}
+              onInstagramUrlChange={(v) => patch('instagramUrl', v)}
+              onAvatarUrlChange={(v) => patch('avatarUrl', v)}
+              onPhotoUrlsChange={(v) => patch('photoUrls', v)}
+            />
+          )}
+          {step === 4 && (
+            <Confirmation
+              displayName={form.displayName}
+              city={form.city}
+              bio={form.bio}
+              instruments={form.instruments}
+              genres={form.genres}
+              objectives={form.objectives}
+              avatarUrl={form.avatarUrl}
+            />
+          )}
         </div>
       </div>
 
       {/* Navigation */}
       {step < TOTAL_STEPS && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between border-t border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.9)] px-4 py-4 backdrop-blur-md">
-          <button
-            onClick={() => go(step - 1)}
-            disabled={step === 1}
-            className="rounded-xl px-5 py-2.5 text-sm font-medium text-[rgba(240,239,235,0.45)] transition-opacity hover:text-[#F0EFEB] disabled:opacity-0"
-          >
-            ← Back
-          </button>
+        <div
+          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}
+        >
+          {/* Fade gradient so content doesn't hard-clip behind button */}
+          <div
+            aria-hidden
+            className="pointer-events-none h-10"
+            style={{ background: 'linear-gradient(to bottom, transparent, #0D0D0D)' }}
+          />
+          <div className="flex items-center justify-between bg-[#0D0D0D] px-4 pt-3">
+            <button
+              type="button"
+              onClick={() => { if (step > 1) go(step - 1) }}
+              onTouchEnd={(e) => { e.preventDefault(); if (step > 1) go(step - 1) }}
+              disabled={step === 1}
+              style={{ touchAction: 'manipulation' }}
+              className="rounded-xl px-5 py-2.5 text-sm font-medium text-[rgba(240,239,235,0.45)] transition-opacity hover:text-[#F0EFEB] disabled:opacity-0"
+            >
+              ← Back
+            </button>
 
-          <button
-            onClick={step === 3 ? handleFinish : () => go(step + 1)}
-            disabled={!canAdvance || saving}
-            className="rounded-xl bg-[#FF5500] px-6 py-2.5 text-sm font-semibold text-black shadow-[0_0_16px_rgba(255,85,0,0.35)] transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {saving ? 'Saving…' : step === 3 ? 'Finish' : 'Continue →'}
-          </button>
+            <button
+              type="button"
+              onClick={() => { if (canAdvance && !saving) void (step === 3 ? handleFinish() : go(step + 1)) }}
+              onTouchEnd={(e) => { e.preventDefault(); if (canAdvance && !saving) void (step === 3 ? handleFinish() : go(step + 1)) }}
+              disabled={!canAdvance || saving}
+              style={{ touchAction: 'manipulation' }}
+              className="flex h-[52px] items-center rounded-full bg-[#FF5500] px-8 text-base font-semibold text-black shadow-[0_0_16px_rgba(255,85,0,0.35)] transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : step === 3 ? 'Finish' : 'Continue →'}
+            </button>
+          </div>
         </div>
       )}
 

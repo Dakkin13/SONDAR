@@ -16,8 +16,8 @@ const STEP_TARGETS: OrbTargets[] = [
   { ox: 0.80, oy: 0.55, vx: 0.25, vy: 0.30 },
   // Step 3 — make it yours: orange spotlight top-centre, violet sinks low-left
   { ox: 0.50, oy: 0.25, vx: 0.10, vy: 0.85 },
-  // Step 4 — confirmation: both orbs merge at centre, celebratory bloom
-  { ox: 0.50, oy: 0.50, vx: 0.50, vy: 0.50 },
+  // Step 4 — confirmation: orange centres on profile picture, violet becomes footlights
+  { ox: 0.50, oy: 0.42, vx: 0.15, vy: 0.80 },
 ]
 
 // ── Filaments (identical to landing page) ────────────────────────────────────
@@ -134,42 +134,80 @@ export default function OnboardingBackground({ currentStep }: Props) {
         }
       }
 
-      // ── Floating drift (additive over the lerped base position) ──────────
-      const ox = w * curOX + 30 * Math.sin(time / 17000) * Math.cos(time / 11300 * 0.7)
-      const oy = h * curOY + 20 * Math.cos(time / 13000) * Math.sin(time / 9100 * 0.8)
-      const vx = w * curVX + 25 * Math.sin(time / 22000 + 1.2) * Math.cos(time / 15700 * 0.6)
-      const vy = h * curVY + 25 * Math.cos(time / 19000 + 0.8) * Math.sin(time / 12300 * 0.9)
+      // ── Floating drift — t in seconds, complementary sine/cosine orbital ────
+      const t = time / 1000
+      const ox = w * curOX + 35 * Math.sin(t * 0.40)
+      const oy = h * curOY + 28 * Math.cos(t * 0.30)
+      const vx = w * curVX + 28 * Math.cos(t * 0.35)
+      const vy = h * curVY + 28 * Math.sin(t * 0.28)
 
-      // On step 4 the violet orb grows large so both glows merge
-      const orangeR = 300 * radiusMult
-      const violetR = (step === 4 ? 520 : 400) * radiusMult
+      // Clamp: keep orbs from drifting fully off screen
+      const ex = w * 0.08, ey = h * 0.08
+      const ocx = Math.max(ex, Math.min(w - ex, ox))
+      const ocy = Math.max(ey, Math.min(h - ey, oy))
+      const vcx = Math.max(ex, Math.min(w - ex, vx))
+      const vcy = Math.max(ey, Math.min(h - ey, vy))
+
+      // Softer, more volumetric radii
+      const orangeR = (step === 4 ? 300 : 420) * radiusMult
+      const violetR = 520 * radiusMult
 
       // ── Background ────────────────────────────────────────────────────────
       ctx.fillStyle = '#0D0D0D'
       ctx.fillRect(0, 0, w, h)
 
       // ── Violet orb ────────────────────────────────────────────────────────
-      const vg = ctx.createRadialGradient(vx, vy, 0, vx, vy, violetR)
-      vg.addColorStop(0,    step === 4 ? 'rgba(91,33,182,0.65)' : 'rgba(91,33,182,0.52)')
-      vg.addColorStop(0.30, 'rgba(91,33,182,0.22)')
-      vg.addColorStop(0.65, 'rgba(91,33,182,0.06)')
-      vg.addColorStop(1,    'rgba(91,33,182,0)')
-      ctx.fillStyle = vg
-      ctx.fillRect(0, 0, w, h)
+      if (step === 4) {
+        // Footlights: two small pulsing violet glows at the bottom corners
+        const breathe = 0.85 + 0.15 * Math.sin(t * (Math.PI * 2 / 3))
+        const fR = 240 * breathe
+        const lx = w * 0.15, ly = h * 0.88
+        const lg = ctx.createRadialGradient(lx, ly, 0, lx, ly, fR)
+        lg.addColorStop(0, 'rgba(91,33,182,0.52)')
+        lg.addColorStop(0.38, 'rgba(91,33,182,0.18)')
+        lg.addColorStop(1, 'rgba(91,33,182,0)')
+        ctx.fillStyle = lg
+        ctx.fillRect(0, 0, w, h)
+        const rx = w * 0.85, ry = h * 0.88
+        const rg2 = ctx.createRadialGradient(rx, ry, 0, rx, ry, fR)
+        rg2.addColorStop(0, 'rgba(91,33,182,0.52)')
+        rg2.addColorStop(0.38, 'rgba(91,33,182,0.18)')
+        rg2.addColorStop(1, 'rgba(91,33,182,0)')
+        ctx.fillStyle = rg2
+        ctx.fillRect(0, 0, w, h)
+      } else {
+        const vg = ctx.createRadialGradient(vcx, vcy, 0, vcx, vcy, violetR)
+        vg.addColorStop(0,    'rgba(91,33,182,0.55)')
+        vg.addColorStop(0.25, 'rgba(91,33,182,0.24)')
+        vg.addColorStop(0.55, 'rgba(91,33,182,0.08)')
+        vg.addColorStop(1,    'rgba(91,33,182,0)')
+        ctx.fillStyle = vg
+        ctx.fillRect(0, 0, w, h)
+      }
 
       // ── Orange orb ────────────────────────────────────────────────────────
-      const og = ctx.createRadialGradient(ox, oy, 0, ox, oy, orangeR)
-      og.addColorStop(0,    'rgba(255,200,80,0.95)')
-      og.addColorStop(0.06, 'rgba(255,140,20,0.75)')
-      og.addColorStop(0.18, 'rgba(255,92,0,0.40)')
-      og.addColorStop(0.40, 'rgba(255,60,0,0.15)')
-      og.addColorStop(0.70, 'rgba(255,40,0,0.05)')
-      og.addColorStop(1,    'rgba(255,40,0,0)')
+      const og = ctx.createRadialGradient(ocx, ocy, 0, ocx, ocy, orangeR)
+      if (step === 4) {
+        // Spotlight: brighter core, tighter falloff — feels like a beam through the profile picture
+        og.addColorStop(0,    'rgba(255,220,100,1.0)')
+        og.addColorStop(0.05, 'rgba(255,165,30,0.92)')
+        og.addColorStop(0.14, 'rgba(255,100,0,0.58)')
+        og.addColorStop(0.35, 'rgba(255,70,0,0.20)')
+        og.addColorStop(0.65, 'rgba(255,50,0,0.06)')
+        og.addColorStop(1,    'rgba(255,50,0,0)')
+      } else {
+        og.addColorStop(0,    'rgba(255,200,80,0.95)')
+        og.addColorStop(0.06, 'rgba(255,140,20,0.75)')
+        og.addColorStop(0.18, 'rgba(255,92,0,0.40)')
+        og.addColorStop(0.38, 'rgba(255,60,0,0.14)')
+        og.addColorStop(0.65, 'rgba(255,40,0,0.04)')
+        og.addColorStop(1,    'rgba(255,40,0,0)')
+      }
       ctx.fillStyle = og
       ctx.fillRect(0, 0, w, h)
 
       // ── Waveform filaments ────────────────────────────────────────────────
-      const orbXFrac = ox / w
+      const orbXFrac = ocx / w
 
       for (let fi = 0; fi < FILAMENTS.length; fi++) {
         const fil   = FILAMENTS[fi]
@@ -211,7 +249,7 @@ export default function OnboardingBackground({ currentStep }: Props) {
 
         const rg = ctx.createLinearGradient(0, 0, w, 0)
         rg.addColorStop(0,        'rgba(240,239,235,0)')
-        rg.addColorStop(orbXFrac, `rgba(255,92,0,${F_OPACITIES[5] * 0.12})`)
+        rg.addColorStop(orbXFrac, `rgba(255,92,0,${F_OPACITIES[5] * 0.10})`)
         rg.addColorStop(1,        'rgba(240,239,235,0)')
 
         ctx.save()
@@ -230,7 +268,7 @@ export default function OnboardingBackground({ currentStep }: Props) {
       // ── Film grain ────────────────────────────────────────────────────────
       if (grainPat) {
         ctx.save()
-        ctx.globalAlpha = 0.045
+        ctx.globalAlpha = 0.025
         ctx.fillStyle   = grainPat
         ctx.fillRect(0, 0, w, h)
         ctx.restore()

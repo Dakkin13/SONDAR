@@ -36,15 +36,9 @@ export type Genre =
   | 'indie'
   | 'other'
 
-export type Objective =
-  | 'jam'
-  | 'form-band'
-  | 'record'
-  | 'perform-live'
-  | 'teach'
-  | 'learn'
-  | 'collaborate'
-  | 'session-work'
+// Values match the 4 options shown in the UI.
+// toObjectiveEnum() in onboarding/page.tsx maps these to DB enum values before upsert.
+export type Objective = 'jam' | 'form-band' | 'record' | 'perform-live'
 
 export interface Profile {
   id: string
@@ -71,13 +65,14 @@ export interface NearbyMusician {
   id: string
   display_name: string | null
   avatar_url: string | null
+  photo_urls: string[] | null
   instruments: Instrument[]
   genres: Genre[]
-  objectives: Objective[]
+  objective: string | null
   bio: string | null
-  location_lat: number
-  location_lng: number
-  location_name: string | null
+  lat: number
+  lng: number
+  city: string | null
   last_active: string | null
   distance_km: number
 }

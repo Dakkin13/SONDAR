@@ -12,6 +12,7 @@ interface Step3Props {
   audioLink: string
   instagramUrl: string
   avatarUrl: string | null
+  photoUrls: string[]
   onDisplayNameChange: (v: string) => void
   onCityChange: (v: string) => void
   onCitySelect: (name: string, lat: number, lng: number) => void
@@ -19,8 +20,10 @@ interface Step3Props {
   onAudioLinkChange: (v: string) => void
   onInstagramUrlChange: (v: string) => void
   onAvatarUrlChange: (url: string) => void
+  onPhotoUrlsChange: (urls: string[]) => void
 }
 
+const MAX_ADDITIONAL = 3
 const BIO_MAX = 120
 
 export default function Step3({
@@ -30,6 +33,7 @@ export default function Step3({
   audioLink,
   instagramUrl,
   avatarUrl,
+  photoUrls,
   onDisplayNameChange,
   onCityChange,
   onCitySelect,
@@ -37,39 +41,36 @@ export default function Step3({
   onAudioLinkChange,
   onInstagramUrlChange,
   onAvatarUrlChange,
+  onPhotoUrlsChange,
 }: Step3Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const [localPreview, setLocalPreview] = useState<string | null>(null)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const photoInputRef  = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading]           = useState(false)
+  const [uploadingSlot, setUploadingSlot]   = useState<number | null>(null)
+  const [uploadError, setUploadError]       = useState<string | null>(null)
+  const [localPreview, setLocalPreview]     = useState<string | null>(null)
+  const pendingSlotRef = useRef<number | null>(null)
   const supabase = createClient()
+
+  async function getUser() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not signed in')
+    return user
+  }
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-
-    // Show local preview immediately
     const objectUrl = URL.createObjectURL(file)
     setLocalPreview(objectUrl)
     setUploadError(null)
     setUploading(true)
-
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) throw new Error('Not signed in — please log in first')
-
-      const ext = file.name.split('.').pop() ?? 'jpg'
+      const user = await getUser()
+      const ext  = file.name.split('.').pop() ?? 'jpg'
       const path = `${user.id}/avatar.${ext}`
-
-      const { error } = await supabase.storage
-        .from('avatars')
-        .upload(path, file, { upsert: true })
-
+      const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
       if (error) throw error
-
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       onAvatarUrlChange(data.publicUrl)
       URL.revokeObjectURL(objectUrl)
@@ -79,20 +80,54 @@ export default function Step3({
       setLocalPreview(null)
     } finally {
       setUploading(false)
-      // Reset input so the same file can be re-selected after an error
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
     }
   }
 
-  const displayAvatar = avatarUrl ?? localPreview
+  function openPhotoSlot(idx: number) {
+    if (idx >= MAX_ADDITIONAL) return
+    pendingSlotRef.current = idx
+    photoInputRef.current?.click()
+  }
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    const slot = pendingSlotRef.current
+    if (!file || slot === null) return
+    setUploadingSlot(slot)
+    setUploadError(null)
+    try {
+      const user = await getUser()
+      const ts   = Date.now()
+      const ext  = file.name.split('.').pop() ?? 'jpg'
+      const path = `${user.id}/photos/${ts}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`
+      const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+      if (error) throw error
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      const next = [...photoUrls]
+      next[slot] = data.publicUrl
+      onPhotoUrlsChange(next.filter(Boolean))
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Photo upload failed')
+    } finally {
+      setUploadingSlot(null)
+      pendingSlotRef.current = null
+      if (photoInputRef.current) photoInputRef.current.value = ''
+    }
+  }
+
+  function removePhoto(idx: number) {
+    const next = [...photoUrls]
+    next.splice(idx, 1)
+    onPhotoUrlsChange(next)
+  }
+
+  const displayAvatar = localPreview ?? avatarUrl
 
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h2
-          className="mb-1 text-4xl text-[#F0EFEB]"
-          style={{ fontFamily: 'var(--font-bebas)' }}
-        >
+        <h2 className="mb-1 text-4xl text-[#F0EFEB]" style={{ fontFamily: 'var(--font-bebas)' }}>
           Make it yours
         </h2>
         <p className="text-sm text-[rgba(240,239,235,0.45)]">
@@ -100,31 +135,30 @@ export default function Step3({
         </p>
       </div>
 
-      {/* Avatar */}
+      {/* Primary avatar */}
       <div className="flex flex-col items-center gap-2">
+        <p className="self-start text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
+          Profile photo
+        </p>
+        <p className="self-start text-xs text-[rgba(240,239,235,0.3)] -mt-1 mb-1">
+          This is what people see on the map
+        </p>
+
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => avatarInputRef.current?.click()}
           disabled={uploading}
-          className="relative h-24 w-24 overflow-hidden rounded-full border-2 border-[rgba(240,239,235,0.12)] bg-[#1C1C1C] transition-opacity hover:opacity-80 disabled:cursor-wait"
+          className="relative h-[100px] w-[100px] overflow-hidden rounded-full border-2 border-[rgba(240,239,235,0.12)] bg-[#1C1C1C] transition-opacity hover:opacity-80 disabled:cursor-wait"
           aria-label="Upload profile photo"
         >
           {displayAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={displayAvatar}
-              alt="Avatar preview"
-              className="h-full w-full object-cover"
-            />
+            <img src={displayAvatar} alt="Avatar preview" className="h-full w-full object-cover" />
           ) : (
-            <span className="flex h-full w-full items-center justify-center text-3xl">
-              📷
-            </span>
+            <span className="flex h-full w-full items-center justify-center text-3xl">📷</span>
           )}
-
-          {/* Uploading overlay */}
           {uploading && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-              <span className="text-xs text-[#F0EFEB]">···</span>
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             </div>
           )}
         </button>
@@ -132,18 +166,62 @@ export default function Step3({
         <p className="text-xs text-[rgba(240,239,235,0.35)]">
           {uploading ? 'Uploading…' : 'Tap to add photo'}
         </p>
+        {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
 
-        {uploadError && (
-          <p className="text-xs text-red-400">{uploadError}</p>
-        )}
+        <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => void handleAvatarChange(e)} />
+      </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleAvatarChange}
-        />
+      {/* Additional photos */}
+      <div>
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
+          Add more photos{' '}
+          <span className="normal-case font-normal text-[rgba(240,239,235,0.2)]">(optional)</span>
+        </p>
+        <div className="flex gap-3">
+          {Array.from({ length: MAX_ADDITIONAL }).map((_, i) => {
+            const url = photoUrls[i]
+            const busy = uploadingSlot === i
+            return (
+              <div key={i} className="relative h-20 w-20 flex-shrink-0">
+                {url ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`Photo ${i + 1}`}
+                      className="h-full w-full rounded-xl object-cover" />
+                    <button
+                      onClick={() => removePhoto(i)}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black text-[10px] text-white"
+                      style={{ border: '1.5px solid rgba(240,239,235,0.3)' }}
+                      aria-label="Remove photo"
+                    >
+                      ×
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => openPhotoSlot(i)}
+                    disabled={busy}
+                    className="flex h-full w-full items-center justify-center rounded-xl"
+                    style={{
+                      border: '1.5px dashed rgba(240,239,235,0.18)',
+                      background: 'rgba(240,239,235,0.03)',
+                    }}
+                    aria-label={`Add photo ${i + 1}`}
+                  >
+                    {busy ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    ) : (
+                      <span className="text-lg text-[rgba(240,239,235,0.2)]">+</span>
+                    )}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => void handlePhotoChange(e)} />
       </div>
 
       {/* Fields */}
@@ -171,19 +249,14 @@ export default function Step3({
             rows={3}
             className={cn(inputClass, 'resize-none pb-6')}
           />
-          <span
-            className={cn(
-              'absolute bottom-3 right-3 text-xs',
-              bio.length >= BIO_MAX
-                ? 'text-[#FF5500]'
-                : 'text-[rgba(240,239,235,0.3)]',
-            )}
-          >
+          <span className={cn(
+            'absolute bottom-3 right-3 text-xs',
+            bio.length >= BIO_MAX ? 'text-[#FF5500]' : 'text-[rgba(240,239,235,0.3)]',
+          )}>
             {bio.length}/{BIO_MAX}
           </span>
         </div>
 
-        {/* Audio link */}
         <div className="relative">
           <input
             type="url"
@@ -192,12 +265,9 @@ export default function Step3({
             placeholder="YouTube or SoundCloud link (optional)"
             className={cn(inputClass, 'pl-10')}
           />
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base leading-none">
-            🎵
-          </span>
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base leading-none">🎵</span>
         </div>
 
-        {/* Instagram */}
         <div className="relative">
           <input
             type="text"
@@ -217,17 +287,8 @@ export default function Step3({
 
 function InstagramIcon() {
   return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="rgba(240,239,235,0.4)"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="rgba(240,239,235,0.4)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
       <circle cx="12" cy="12" r="4" />
       <circle cx="17.5" cy="6.5" r="0.75" fill="rgba(240,239,235,0.4)" stroke="none" />

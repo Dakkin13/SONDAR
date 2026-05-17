@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Instrument, Genre, Objective } from '@/types'
@@ -31,10 +31,10 @@ const INSTRUMENT_EMOJI: Record<string, string> = {
 }
 
 const OBJECTIVE_LABEL: Record<string, string> = {
-  jam: 'Casual jam', 'form-band': 'Form a band',
-  record: 'Studio sessions', 'perform-live': 'Live gigs',
   casual_jam: 'Casual jam', form_band: 'Form a band',
   studio_sessions: 'Studio sessions', live_gigs: 'Live gigs',
+  jam: 'Casual jam', 'form-band': 'Form a band',
+  record: 'Studio sessions', 'perform-live': 'Live gigs',
 }
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -74,48 +74,81 @@ function shortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toUpperCase()
 }
 
-export default function ProfilePage() {
-  const { id } = useParams<{ id: string }>()
-  const router  = useRouter()
-  const supabase = createClient()
+const MAX_ADDITIONAL = 6
 
+export default function MyProfilePage() {
+  const router = useRouter()
+  const supabase = createClient()
   const [profile, setProfile] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
-  const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [photoUrls, setPhotoUrls] = useState<string[]>([])
+  const [addingPhoto, setAddingPhoto] = useState(false)
+  const addPhotoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+      setUserId(user.id)
+
+      const { data } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences, location')
-        .eq('id', id)
+        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences')
+        .eq('id', user.id)
         .single()
 
-      if (error || !data) { setNotFound(true) }
-      else {
+      if (data) {
         setProfile(data as ProfileData)
-        // Compute approximate distance if we can get user's position and musician's location
-        const loc = (data as Record<string, unknown>).location as { type?: string; coordinates?: [number, number] } | null
-        if (loc?.type === 'Point' && Array.isArray(loc.coordinates) && loc.coordinates.length === 2) {
-          const [mLng, mLat] = loc.coordinates
-          navigator.geolocation?.getCurrentPosition(
-            (pos) => {
-              const R = 6371
-              const dLat = (mLat - pos.coords.latitude) * Math.PI / 180
-              const dLng = (mLng - pos.coords.longitude) * Math.PI / 180
-              const a = Math.sin(dLat/2)**2 + Math.cos(pos.coords.latitude * Math.PI/180) * Math.cos(mLat * Math.PI/180) * Math.sin(dLng/2)**2
-              setDistanceKm(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)))
-            },
-            () => {},
-            { enableHighAccuracy: false, timeout: 5000, maximumAge: 600000 },
-          )
-        }
+        setPhotoUrls((data as ProfileData).photo_urls ?? [])
       }
       setLoading(false)
     }
     void load()
-  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleAddPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !userId || photoUrls.length >= MAX_ADDITIONAL) return
+    setAddingPhoto(true)
+    try {
+      const ts   = Date.now()
+      const ext  = file.name.split('.').pop() ?? 'jpg'
+      const path = `${userId}/photos/${ts}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`
+      const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+      if (error) throw error
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      const next = [...photoUrls, data.publicUrl]
+      setPhotoUrls(next)
+      await supabase.from('profiles').update({ photo_urls: next }).eq('id', userId)
+    } catch (err) {
+      console.error('Photo upload failed:', err)
+    } finally {
+      setAddingPhoto(false)
+      if (addPhotoRef.current) addPhotoRef.current.value = ''
+    }
+  }
+
+  async function handleDeletePhoto(idx: number) {
+    if (!userId) return
+    const next = photoUrls.filter((_, i) => i !== idx)
+    setPhotoUrls(next)
+    await supabase.from('profiles').update({ photo_urls: next }).eq('id', userId)
+  }
+
+  async function shareProfile() {
+    const url = `${window.location.origin}/profile/${profile!.id}`
+    if (navigator.share) {
+      try { await navigator.share({ title: `${profile!.display_name} on Sondar`, url }) } catch {}
+    } else {
+      await navigator.clipboard.writeText(url)
+    }
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   if (loading) {
     return (
@@ -125,16 +158,16 @@ export default function ProfilePage() {
     )
   }
 
-  if (notFound || !profile) {
+  if (!profile) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 text-[#F0EFEB]" style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
-        <p className="font-[family-name:var(--font-bebas)] text-4xl tracking-widest text-[rgba(240,239,235,0.3)]">
-          MUSICIAN NOT FOUND
+        <p className="font-[family-name:var(--font-bebas)] text-3xl tracking-widest text-[rgba(240,239,235,0.3)]">
+          NO PROFILE YET
         </p>
-        <button onClick={() => router.push('/explore')}
-          className="text-sm text-[rgba(240,239,235,0.4)] underline hover:text-[#F0EFEB]">
-          ← Back to Explore
+        <button onClick={() => router.push('/onboarding')} className="text-sm text-[#FF5500] underline">
+          Complete onboarding →
         </button>
+        <BottomNav />
       </div>
     )
   }
@@ -148,7 +181,7 @@ export default function ProfilePage() {
   const extUrl       = audioType === 'link' ? profile.audio_url : null
 
   return (
-    <div className="relative overflow-y-auto" style={{ minHeight: '100dvh', paddingBottom: 90, zIndex: 1, overflowX: 'clip' }}>
+    <div className="relative overflow-y-auto" style={{ minHeight: '100dvh', paddingBottom: 100, zIndex: 1, overflowX: 'clip' }}>
 
       {/* Ambient orbs */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none' }}>
@@ -158,12 +191,23 @@ export default function ProfilePage() {
           background: 'radial-gradient(circle at 20% 80%, rgba(139,92,246,0.14) 0%, transparent 60%)', borderRadius: '50%' }} />
       </div>
 
-      {/* Back button */}
-      <button onClick={() => router.push('/explore')}
-        className="absolute left-4 top-4 z-10 rounded-xl bg-[rgba(13,13,13,0.6)] px-3 py-2 text-sm font-medium text-[rgba(240,239,235,0.6)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]"
-        style={{ backdropFilter: 'blur(20px)' }}>
-        ← Explore
-      </button>
+      {/* Top action bar */}
+      <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-4">
+        <button onClick={() => router.push('/home')}
+          className="rounded-xl bg-[rgba(13,13,13,0.6)] px-3 py-2 text-sm font-medium text-[rgba(240,239,235,0.6)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]">
+          ← Home
+        </button>
+        <div className="flex gap-2">
+          <button onClick={() => void shareProfile()}
+            className="rounded-xl border border-[rgba(240,239,235,0.12)] bg-[rgba(13,13,13,0.6)] px-3 py-2 text-xs font-medium text-[rgba(240,239,235,0.55)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]">
+            Share
+          </button>
+          <button onClick={() => router.push('/settings')}
+            className="rounded-xl border border-[rgba(255,92,0,0.35)] bg-[rgba(13,13,13,0.6)] px-3 py-2 text-xs font-medium text-[#FF5500] backdrop-blur-md transition-colors hover:bg-[rgba(255,92,0,0.12)]">
+            Edit
+          </button>
+        </div>
+      </div>
 
       {/* ── Main card ── */}
       <motion.div
@@ -173,7 +217,6 @@ export default function ProfilePage() {
         className="mx-auto px-4 pt-16"
         style={{ maxWidth: 480 }}
       >
-        {/* Profile card */}
         <div
           className="relative overflow-hidden rounded-2xl"
           style={{
@@ -196,32 +239,37 @@ export default function ProfilePage() {
               <p className="mt-0.5 text-[7px] tracking-[0.22em] text-[rgba(240,239,235,0.35)]">BACKSTAGE · ALL AREAS</p>
               <div className="mt-1.5 h-px w-8 bg-[#FF5C00]" />
             </div>
-            <div className="flex items-center gap-2">
-              {activeStatus && (
-                <div className="flex items-center gap-1.5 rounded-full border border-[#B8FF00] px-2.5 py-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#B8FF00]" />
-                  <span className="text-[7px] tracking-[0.15em] text-[#B8FF00] uppercase">{activeStatus}</span>
-                </div>
-              )}
-            </div>
+            {activeStatus && (
+              <div className="flex items-center gap-1.5 rounded-full border border-[#B8FF00] px-2.5 py-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#B8FF00]" />
+                <span className="text-[7px] tracking-[0.15em] text-[#B8FF00] uppercase">{activeStatus}</span>
+              </div>
+            )}
           </div>
 
-          {/* Avatar section */}
-          <div className="relative mx-4 mb-0 h-[160px] overflow-hidden rounded-xl bg-[#060606]">
-            {profile.avatar_url && (
-              <img src={profile.avatar_url} alt="" aria-hidden
-                className="absolute inset-0 h-full w-full object-cover"
-                style={{ opacity: 0.15, filter: 'blur(20px)', transform: 'scale(1.1)' }} />
-            )}
+          {/* Avatar zone — full-width photo, corner brackets, same style as explore cards */}
+          <div className="relative mx-4 mb-0 h-[260px] overflow-hidden rounded-xl bg-[#060606]">
+            {/* Corner brackets */}
+            <span className="absolute left-2 top-2 z-10 block h-3 w-3 border-l border-t border-[rgba(240,239,235,0.22)]" />
+            <span className="absolute right-2 top-2 z-10 block h-3 w-3 border-r border-t border-[rgba(240,239,235,0.22)]" />
+            <span className="absolute bottom-2 left-2 z-10 block h-3 w-3 border-b border-l border-[rgba(240,239,235,0.22)]" />
+            <span className="absolute bottom-2 right-2 z-10 block h-3 w-3 border-b border-r border-[rgba(240,239,235,0.22)]" />
+
+            {/* Ambient glow */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div style={{ width: 80, height: 80, borderRadius: '50%',
-                background: 'rgba(255,92,0,0.15)', position: 'absolute', filter: 'blur(30px)' }} />
-              {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile.display_name ?? 'Musician'}
-                  style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover',
-                    border: '2px solid rgba(255,92,0,0.6)',
-                    boxShadow: '0 0 24px rgba(255,92,0,0.35)', position: 'relative', zIndex: 1 }} />
-              ) : (
+                background: 'rgba(255,92,0,0.2)', position: 'absolute', filter: 'blur(40px)' }} />
+            </div>
+
+            {profile.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={profile.display_name ?? 'Me'}
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ opacity: 0.92 }}
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
                 <div className="flex items-center justify-center"
                   style={{ width: 88, height: 88, borderRadius: '50%', background: '#1a1a1a',
                     border: '2px solid rgba(255,92,0,0.5)', position: 'relative', zIndex: 1 }}>
@@ -229,13 +277,14 @@ export default function ProfilePage() {
                     {initials}
                   </span>
                 </div>
-              )}
-            </div>
-            <p className="absolute bottom-2 left-3 text-[7px] tracking-widest text-[rgba(240,239,235,0.3)]">
+              </div>
+            )}
+
+            <p className="absolute bottom-2 left-3 z-10 text-[7px] tracking-widest text-[rgba(240,239,235,0.3)]">
               ID # SDR-{shortId(profile.id)}
             </p>
             {profile.instruments?.[0] && (
-              <p className="absolute bottom-2 right-3 text-[7px] tracking-widest text-[#FF5C00] uppercase">
+              <p className="absolute bottom-2 right-3 z-10 text-[7px] tracking-widest text-[#FF5C00] uppercase">
                 {profile.instruments[0]} · {LEVEL_LABEL[profile.level ?? ''] ?? profile.level ?? '—'}
               </p>
             )}
@@ -245,14 +294,14 @@ export default function ProfilePage() {
           <div className="px-5 pt-3 pb-2">
             <h1 className="text-[28px] leading-none tracking-[0.04em] text-[#F0EFEB]"
               style={{ fontFamily: 'var(--font-bebas)' }}>
-              {profile.display_name ?? 'UNKNOWN ARTIST'}
+              {profile.display_name ?? 'YOUR NAME'}
             </h1>
             {profile.city && (
               <p className="mt-0.5 text-[9px] tracking-[0.14em] text-[rgba(240,239,235,0.38)] uppercase">{profile.city}</p>
             )}
           </div>
 
-          {/* Tags row — instruments + genres compact */}
+          {/* Tags row */}
           {((profile.instruments?.length ?? 0) > 0 || (profile.genres?.length ?? 0) > 0) && (
             <div className="px-5 pb-3">
               <div className="flex flex-wrap gap-1.5">
@@ -294,14 +343,6 @@ export default function ProfilePage() {
                 <p className="mt-0.5 text-[9px] font-semibold tracking-wide text-[#F0EFEB]">{LEVEL_LABEL[profile.level] ?? profile.level}</p>
               </div>
             )}
-            {distanceKm !== null && (
-              <div>
-                <p className="text-[6.5px] tracking-[0.18em] text-[rgba(240,239,235,0.28)] uppercase">Distance</p>
-                <p className="mt-0.5 text-[9px] font-semibold tracking-wide text-[#F0EFEB]">
-                  ~{distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`}
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Bio */}
@@ -332,28 +373,44 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Photo strip */}
-          {(profile.photo_urls?.length ?? 0) > 0 && (
-            <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-              <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-                {profile.photo_urls.map((url, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={url + i} src={url} alt={`Photo ${i + 1}`}
-                    className="h-[90px] w-[90px] flex-shrink-0 rounded-lg object-cover"
+          {/* Photo strip (editable) */}
+          <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
+            <p className="mb-2 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Photos</p>
+            <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+              {photoUrls.map((url, i) => (
+                <div key={url + i} className="relative flex-shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Photo ${i + 1}`}
+                    className="h-[90px] w-[90px] rounded-lg object-cover"
                     style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
-                ))}
-              </div>
+                  <button onClick={() => void handleDeletePhoto(i)}
+                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white"
+                    style={{ border: '1px solid rgba(240,239,235,0.3)' }}
+                    aria-label="Remove photo">×</button>
+                </div>
+              ))}
+              {photoUrls.length < MAX_ADDITIONAL && (
+                <button onClick={() => addPhotoRef.current?.click()} disabled={addingPhoto}
+                  className="flex h-[90px] w-[90px] flex-shrink-0 items-center justify-center rounded-lg"
+                  style={{ border: '1.5px dashed rgba(240,239,235,0.14)', background: 'rgba(240,239,235,0.03)' }}
+                  aria-label="Add photo">
+                  {addingPhoto
+                    ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    : <span className="text-xl text-[rgba(240,239,235,0.2)]">+</span>
+                  }
+                </button>
+              )}
             </div>
-          )}
+            <input ref={addPhotoRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => void handleAddPhoto(e)} />
+          </div>
 
           {/* Audio */}
           {audioType === 'youtube' && ytEmbed && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
               <div className="aspect-video overflow-hidden rounded-xl">
-                <iframe src={ytEmbed} title="YouTube player"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen className="h-full w-full border-0" />
+                <iframe src={ytEmbed} title="YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="h-full w-full border-0" />
               </div>
             </div>
           )}
@@ -361,8 +418,7 @@ export default function ProfilePage() {
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
               <div className="overflow-hidden rounded-xl">
-                <iframe title="SoundCloud player" scrolling="no" allow="autoplay" src={scEmbed}
-                  className="h-[100px] w-full border-0" />
+                <iframe title="SoundCloud" scrolling="no" allow="autoplay" src={scEmbed} className="h-[100px] w-full border-0" />
               </div>
             </div>
           )}
@@ -387,18 +443,16 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Send message CTA */}
+        {/* Sign out */}
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+          className="mt-4 pb-4"
         >
-          <button
-            onClick={() => router.push(`/messages/${id}`)}
-            className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
-          >
-            Send message
+          <button onClick={() => void handleSignOut()}
+            className="w-full rounded-full border border-[rgba(240,239,235,0.08)] py-3 text-sm text-[rgba(240,239,235,0.35)] transition-colors hover:text-[rgba(240,239,235,0.65)]">
+            Sign out
           </button>
         </motion.div>
       </motion.div>
