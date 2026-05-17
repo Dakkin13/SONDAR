@@ -388,7 +388,7 @@ export default function LandingPage() {
 
         {/* ── Hero ──────────────────────────────────────────────────────────── */}
         <section className="relative flex flex-col items-center justify-center px-5 text-center"
-          style={{ minHeight: '100dvh', paddingTop: 80, paddingBottom: 40 }}>
+          style={{ minHeight: '100dvh', paddingTop: 80, paddingBottom: 60 }}>
 
           {/* Subtle hero-centre glow (not scrolled) */}
           <div aria-hidden className="pointer-events-none absolute inset-0" style={{ overflow: 'hidden' }}>
@@ -455,7 +455,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── How it works ──────────────────────────────────────────────────── */}
-        <section id="how-it-works" ref={howRef} className="px-5 py-24 sm:py-32" style={{ scrollMarginTop: 72 }}>
+        <section id="how-it-works" ref={howRef} className="px-5 py-14 sm:py-28" style={{ scrollMarginTop: 72 }}>
           <div className="mx-auto max-w-5xl">
             <motion.p initial={{ opacity: 1, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.5 }}
@@ -495,7 +495,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── Profile card showcase ──────────────────────────────────────────── */}
-        <section className="relative flex flex-col items-center overflow-hidden px-5 py-24 sm:py-32">
+        <section className="relative flex flex-col items-center overflow-hidden px-5 py-14 sm:py-28">
           <div aria-hidden className="pointer-events-none absolute inset-0">
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
               style={{ width: 600, height: 600, background: 'radial-gradient(circle, rgba(255,92,0,0.08) 0%, transparent 65%)', borderRadius: '50%' }} />
@@ -517,9 +517,9 @@ export default function LandingPage() {
         </section>
 
         {/* ── About / mission ───────────────────────────────────────────────── */}
-        <section className="px-5 py-24 sm:py-32">
+        <section className="px-5 py-14 sm:py-28">
           <div className="mx-auto max-w-5xl">
-            <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-20">
+            <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-20">
               <div>
                 <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[rgba(240,239,235,0.3)]">
                   Why Sondar exists
@@ -558,7 +558,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── European cities ────────────────────────────────────────────────── */}
-        <section className="px-5 py-24 sm:py-32">
+        <section className="px-5 py-14 sm:py-28">
           <div className="mx-auto max-w-5xl">
             <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[rgba(240,239,235,0.3)]">
               Where we live
@@ -605,7 +605,7 @@ export default function LandingPage() {
         </section>
 
         {/* ── Final CTA ─────────────────────────────────────────────────────── */}
-        <section className="relative flex flex-col items-center overflow-hidden px-5 py-32 text-center sm:py-40">
+        <section className="relative flex flex-col items-center overflow-hidden px-5 py-20 text-center sm:py-36">
           <div aria-hidden className="pointer-events-none absolute inset-0">
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
               style={{ width: 800, height: 600, background: 'radial-gradient(ellipse, rgba(255,92,0,0.12) 0%, rgba(255,92,0,0.04) 40%, transparent 65%)', borderRadius: '50%' }} />
@@ -642,8 +642,8 @@ export default function LandingPage() {
               SONDAR
             </span>
             <div className="flex items-center gap-5 text-xs text-[rgba(240,239,235,0.3)]">
-              <Link href="/login" className="hover:text-[rgba(240,239,235,0.6)] transition-colors">About</Link>
-              <Link href="/login" className="hover:text-[rgba(240,239,235,0.6)] transition-colors">Privacy Policy</Link>
+              <Link href="/about" className="hover:text-[rgba(240,239,235,0.6)] transition-colors">About</Link>
+              <Link href="/privacy" className="hover:text-[rgba(240,239,235,0.6)] transition-colors">Privacy Policy</Link>
             </div>
             <div className="flex items-center gap-4">
               <a href="https://www.tiktok.com/@sondar_app?_r=1&_t=ZN-96PSe9Lbswg" target="_blank" rel="noopener noreferrer"

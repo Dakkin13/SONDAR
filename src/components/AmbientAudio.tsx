@@ -10,7 +10,7 @@ const FADE_STEP   = 0.01
 const FADE_MS     = 75
 
 function isActive(p: string) { return p === '/' || p === '/login' || p.startsWith('/onboarding') }
-function isStop(p: string)   { return p.startsWith('/explore') || p.startsWith('/messages') || p.startsWith('/profile') }
+function isStop(p: string)   { return !isActive(p) }
 
 export default function AmbientAudio() {
   const pathname   = usePathname()

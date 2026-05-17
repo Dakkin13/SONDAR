@@ -4,6 +4,7 @@ import './globals.css'
 import GlobalBackgroundWrapper from '@/components/GlobalBackgroundWrapper'
 import AmbientAudioWrapper from '@/components/AmbientAudioWrapper'
 import { ToastProvider } from '@/components/ui/Toast'
+import { Analytics } from '@vercel/analytics/react'
 
 const bebasNeue = Bebas_Neue({
   weight: '400',
@@ -17,13 +18,26 @@ const dmSans = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Sondar',
-  description: 'Find your people. Make noise.',
+  title: 'Sondar — Find your people. Make noise.',
+  description: 'Connect with musicians in your city. Find bandmates, book rehearsal spaces, and make it happen.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'Sondar',
+  },
+  openGraph: {
+    title: 'Sondar — Find your people. Make noise.',
+    description: 'Connect with musicians in your city. Find bandmates, book rehearsal spaces, and make it happen.',
+    siteName: 'Sondar',
+    type: 'website',
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'Sondar' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Sondar — Find your people. Make noise.',
+    description: 'Connect with musicians in your city.',
+    images: ['/og-image.png'],
   },
 }
 
@@ -43,9 +57,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      translate="no"
       className={`${bebasNeue.variable} ${dmSans.variable} h-full`}
     >
       <head>
+        <meta name="google" content="notranslate" />
         <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta httpEquiv="Pragma" content="no-cache" />
         <meta httpEquiv="Expires" content="0" />
@@ -68,6 +84,7 @@ export default function RootLayout({
             {children}
           </div>
         </ToastProvider>
+        <Analytics />
       </body>
     </html>
   )

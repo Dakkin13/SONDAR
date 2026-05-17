@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Home, Search, MessageCircle, User, Bell, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -46,12 +47,18 @@ export default function BottomNav() {
   const [bellLoading,         setBellLoading]         = useState(false)
   const [unreadCount,         setUnreadCount]         = useState(0)
   const bellRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realtimeRef = useRef<any>(null)
 
   useEffect(() => {
     const supabase = createClient()
+    let userId: string | null = null
+
     async function check() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      userId = user.id
+
       const { data } = await supabase
         .from('profiles')
         .select('years_practicing, age_range, band_experience, influences')
@@ -66,15 +73,32 @@ export default function BottomNav() {
         (Array.isArray(data.influences) && data.influences.length === 0)
       setProfileIncomplete(missing)
 
-      // Quick unread badge count
+      // Initial unread badge count
       const { count } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('to_id', user.id)
         .is('read_at', null)
       setUnreadCount(count ?? 0)
+
+      // Real-time subscription for new incoming messages
+      realtimeRef.current = supabase
+        .channel(`nav-unread-${user.id}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+          const msg = payload.new as { to_id: string; read_at: string | null }
+          if (msg.to_id === userId && !msg.read_at) {
+            setUnreadCount(c => c + 1)
+          }
+        })
+        .subscribe()
     }
     void check()
+
+    return () => {
+      if (realtimeRef.current) {
+        void createClient().removeChannel(realtimeRef.current)
+      }
+    }
   }, [])
 
   // Close bell when clicking outside
@@ -393,7 +417,7 @@ export default function BottomNav() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                       {msg.from_avatar
-                        ? <img src={msg.from_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ? <Image src={msg.from_avatar} alt="" width={36} height={36} style={{ objectFit: 'cover' }} />
                         : <span style={{ fontSize: 14, fontWeight: 700, color: '#FF5C00', fontFamily: 'var(--font-bebas)' }}>
                             {(msg.from_name ?? '?')[0].toUpperCase()}
                           </span>

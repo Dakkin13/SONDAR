@@ -30,49 +30,112 @@ const AGE_OPTIONS = [
 ]
 
 const BAND_OPTIONS = [
-  { value: 'never',           label: 'Never'                  },
-  { value: 'a-few-jams',      label: 'A few jams'             },
-  { value: 'one-or-more',     label: 'One or more bands'      },
-  { value: 'currently-in',    label: 'Currently in a band'    },
+  { value: 'never',           label: 'Never'               },
+  { value: 'a-few-jams',      label: 'A few jams'          },
+  { value: 'one-or-more',     label: 'One or more bands'   },
+  { value: 'currently-in',    label: 'Currently in a band' },
 ]
 
 const LASTFM_KEY = process.env.NEXT_PUBLIC_LASTFM_API_KEY ?? ''
+const PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f'
+const MIN_LISTENERS = 5000
+
+async function getAudioDBImage(artistName: string): Promise<string | null> {
+  try {
+    const r = await fetch(
+      `https://www.theaudiodb.com/api/v1/json/2/search.php?s=${encodeURIComponent(artistName)}`,
+    )
+    if (!r.ok) return null
+    const d = await r.json()
+    const thumb = d?.artists?.[0]?.strArtistThumb as string | undefined
+    return thumb ?? null
+  } catch {
+    return null
+  }
+}
 
 async function searchArtists(q: string): Promise<ArtistResult[]> {
-  if (!q.trim()) return []
+  if (!q.trim() || q.trim().length < 2) return []
   try {
-    const res = await fetch(
-      `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(q)}&limit=5&fmt=json`,
-      { headers: { 'User-Agent': 'Sondar/1.0 (contact@sondar.app)' } },
-    )
-    const data = await res.json()
-    const artists: ArtistResult[] = (data.artists ?? []).map((a: { name: string }) => ({
-      name: a.name,
-      imageUrl: null,
-    }))
+    let artists: ArtistResult[] = []
 
-    // Fetch Last.fm images in parallel (best-effort)
     if (LASTFM_KEY) {
-      await Promise.all(
-        artists.map(async (artist) => {
-          try {
-            const r = await fetch(
-              `https://ws.audioscrobbler.com/2.0/?method=artist.getinfo&artist=${encodeURIComponent(artist.name)}&api_key=${LASTFM_KEY}&format=json`,
-            )
-            const d = await r.json()
-            const img = d?.artist?.image?.[2]?.['#text']
-            if (img && !img.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-              artist.imageUrl = img
-            }
-          } catch {}
-        }),
+      // Last.fm: sorted by listeners so popular artists surface first
+      const res = await fetch(
+        `https://ws.audioscrobbler.com/2.0/?method=artist.search&artist=${encodeURIComponent(q)}&api_key=${LASTFM_KEY}&format=json&limit=10`,
       )
+      const data = await res.json()
+      type LfmArtist = { name: string; listeners: string; image?: Array<{ '#text': string; size: string }> }
+      const matches: LfmArtist[] = data?.results?.artistmatches?.artist ?? []
+
+      artists = matches
+        .filter(a => parseInt(a.listeners ?? '0') >= MIN_LISTENERS)
+        .sort((a, b) => parseInt(b.listeners) - parseInt(a.listeners))
+        .slice(0, 5)
+        .map(a => {
+          // Try to extract image from search result before making another request
+          const img = a.image?.find(i => i.size === 'large')?.['#text'] ?? ''
+          return {
+            name: a.name,
+            imageUrl: img && !img.includes(PLACEHOLDER_HASH) && img.trim() ? img : null,
+          }
+        })
+    } else {
+      // MusicBrainz fallback: filter by score to drop obscure results
+      const res = await fetch(
+        `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(q)}&limit=10&fmt=json`,
+        { headers: { 'User-Agent': 'Sondar/1.0 (contact@sondar.app)' } },
+      )
+      const data = await res.json()
+      type MbArtist = { name: string; score: number }
+      artists = (data.artists ?? [] as MbArtist[])
+        .filter((a: MbArtist) => a.score > 70)
+        .slice(0, 5)
+        .map((a: MbArtist) => ({ name: a.name, imageUrl: null }))
     }
+
+    // Fetch images from TheAudioDB for any artist still missing one
+    await Promise.all(
+      artists.map(async (artist) => {
+        if (!artist.imageUrl) {
+          artist.imageUrl = await getAudioDBImage(artist.name)
+        }
+      }),
+    )
 
     return artists
   } catch {
     return []
   }
+}
+
+function ArtistAvatar({ name, imageUrl, size = 32 }: { name: string; imageUrl: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false)
+  const colors = ['#FF5C00', '#5B21B6', '#0EA5E9', '#10B981', '#F59E0B']
+  const color = colors[name.charCodeAt(0) % colors.length]
+
+  if (imageUrl && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={imageUrl}
+        alt=""
+        onError={() => setFailed(true)}
+        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+      />
+    )
+  }
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: `${color}22`, border: `1.5px solid ${color}55`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.4, fontWeight: 700, color,
+      fontFamily: 'var(--font-bebas)',
+    }}>
+      {name[0]?.toUpperCase()}
+    </div>
+  )
 }
 
 export default function CompleteProfileModal({ onClose, onComplete }: Props) {
@@ -90,14 +153,14 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return }
+    if (!query.trim() || query.trim().length < 2) { setResults([]); return }
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
       const r = await searchArtists(query)
       setResults(r)
       setSearching(false)
-    }, 400)
+    }, 350)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [query])
 
@@ -209,6 +272,7 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
                 </div>
               </motion.div>
             )}
+
             {step === 2 && (
               <motion.div key="step2" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.25 }}>
                 <p className="mb-3 text-sm text-[rgba(240,239,235,0.5)]">What&apos;s your age range?</p>
@@ -227,6 +291,7 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
                 </div>
               </motion.div>
             )}
+
             {step === 3 && (
               <motion.div key="step3" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.25 }}>
                 <p className="mb-3 text-sm text-[rgba(240,239,235,0.5)]">Have you played in a band?</p>
@@ -245,58 +310,76 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
                 </div>
               </motion.div>
             )}
+
             {step === 4 && (
               <motion.div key="step4" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.25 }}>
-                <p className="mb-3 text-sm text-[rgba(240,239,235,0.5)]">Who are your musical influences? (up to 5)</p>
+                <p className="mb-3 text-sm text-[rgba(240,239,235,0.5)]">
+                  Who are your musical influences?{' '}
+                  <span className="text-[rgba(240,239,235,0.3)]">(up to 5)</span>
+                </p>
 
-                {/* Selected chips */}
+                {/* Selected chips with images */}
                 {influences.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
                     {influences.map((a) => (
                       <span key={a.name}
-                        className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+                        className="flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs font-medium"
                         style={{ background: 'rgba(255,92,0,0.15)', border: '1px solid rgba(255,92,0,0.4)', color: '#FF5500' }}>
-                        {a.imageUrl && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={a.imageUrl} alt="" style={{ width: 20, height: 20, borderRadius: '50%', objectFit: 'cover' }} />
-                        )}
+                        <ArtistAvatar name={a.name} imageUrl={a.imageUrl} size={20} />
                         {a.name}
-                        <button onClick={() => removeInfluence(a.name)} className="ml-0.5 opacity-60 hover:opacity-100">×</button>
+                        <button onClick={() => removeInfluence(a.name)}
+                          className="ml-0.5 opacity-60 hover:opacity-100 leading-none"
+                          aria-label={`Remove ${a.name}`}>×</button>
                       </span>
                     ))}
                   </div>
                 )}
 
                 {/* Search input */}
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search artists…"
-                  disabled={influences.length >= 5}
-                  className="w-full rounded-xl px-4 py-3 text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.3)] outline-none"
-                  style={{ background: 'rgba(240,239,235,0.06)', border: '1px solid rgba(240,239,235,0.1)' }}
-                />
+                <div className="relative">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={influences.length >= 5 ? 'Max 5 artists reached' : 'Search artists…'}
+                    disabled={influences.length >= 5}
+                    className="w-full rounded-xl px-4 py-3 text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.3)] outline-none"
+                    style={{ background: 'rgba(240,239,235,0.06)', border: '1px solid rgba(240,239,235,0.1)' }}
+                  />
+                  {searching && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
+                    </div>
+                  )}
+                </div>
 
-                {/* Results */}
-                {results.length > 0 && (
-                  <div className="mt-2 overflow-hidden rounded-xl"
-                    style={{ background: '#1a1a1a', border: '1px solid rgba(240,239,235,0.1)' }}>
-                    {results.map((a) => (
-                      <button key={a.name} onClick={() => addInfluence(a)}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[rgba(240,239,235,0.05)]">
-                        {a.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={a.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                        ) : (
-                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#333', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🎵</div>
-                        )}
-                        <span className="text-sm text-[rgba(240,239,235,0.8)]">{a.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {searching && (
-                  <p className="mt-2 text-xs text-[rgba(240,239,235,0.3)]">Searching…</p>
+                {/* Results — artist photo + name, sorted by popularity */}
+                <AnimatePresence>
+                  {results.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.15 }}
+                      className="mt-2 overflow-hidden rounded-xl"
+                      style={{ background: '#1a1a1a', border: '1px solid rgba(240,239,235,0.1)' }}
+                    >
+                      {results.map((a, i) => (
+                        <button key={a.name} onClick={() => addInfluence(a)}
+                          className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[rgba(240,239,235,0.05)]"
+                          style={{ borderTop: i > 0 ? '1px solid rgba(240,239,235,0.05)' : 'none' }}>
+                          <ArtistAvatar name={a.name} imageUrl={a.imageUrl} size={38} />
+                          <span className="text-sm font-medium text-[rgba(240,239,235,0.85)]">{a.name}</span>
+                          {influences.some(inf => inf.name === a.name) && (
+                            <span className="ml-auto text-[10px] text-[#FF5500]">✓</span>
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {!searching && query.trim().length >= 2 && results.length === 0 && (
+                  <p className="mt-2 text-xs text-[rgba(240,239,235,0.25)]">No popular artists found. Try a different spelling.</p>
                 )}
               </motion.div>
             )}

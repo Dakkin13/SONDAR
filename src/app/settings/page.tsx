@@ -342,12 +342,11 @@ export default function SettingsPage() {
 
     // Update PostGIS location if coordinates changed
     if (form.locationLat !== null && form.locationLng !== null) {
-      const { error: locationError } = await supabase.rpc('set_user_location', {
+      await supabase.rpc('set_user_location', {
         user_id: userId,
         lat: form.locationLat,
         lng: form.locationLng,
       })
-      if (locationError) console.warn('Location RPC failed (non-fatal):', locationError.message)
     }
 
     setSaved(true)
@@ -380,6 +379,16 @@ export default function SettingsPage() {
     .join('')
     .slice(0, 2)
     .toUpperCase()
+
+  const completeness = Math.round([
+    !!form.displayName.trim(),
+    form.instruments.length > 0,
+    form.genres.length > 0,
+    !!form.bio.trim(),
+    !!form.level,
+    !!form.city.trim(),
+    form.availability.length > 0,
+  ].filter(Boolean).length / 7 * 100)
 
   if (loading) {
     return (
@@ -418,7 +427,7 @@ export default function SettingsPage() {
           <div className="mx-auto flex max-w-lg items-center justify-between">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => router.push('/explore')}
+                onClick={() => router.push('/home')}
                 className="text-sm text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
               >
                 ←
@@ -438,6 +447,28 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Profile completeness bar */}
+        <div className="border-b border-[rgba(240,239,235,0.05)] px-4 py-3">
+          <div className="mx-auto max-w-lg flex items-center gap-3">
+            <div className="flex-1 h-1 overflow-hidden rounded-full bg-[rgba(240,239,235,0.06)]">
+              <motion.div
+                className="h-full rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${completeness}%` }}
+                transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                style={{ background: completeness === 100
+                  ? 'linear-gradient(90deg,#22c55e,#16a34a)'
+                  : 'linear-gradient(90deg,#FF5C00,#8B5CF6)',
+                  boxShadow: '0 0 6px rgba(255,85,0,0.35)' }}
+              />
+            </div>
+            <span className="shrink-0 text-[11px] font-semibold"
+              style={{ color: completeness === 100 ? '#22c55e' : '#FF5C00' }}>
+              {completeness}% complete
+            </span>
+          </div>
+        </div>
+
         <div className="mx-auto max-w-lg px-4 py-5 space-y-6">
 
           {/* ── Photo ─────────────────────────────────────────────────────────── */}
@@ -451,6 +482,7 @@ export default function SettingsPage() {
                 aria-label="Change profile photo"
               >
                 {displayAvatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={displayAvatar} alt="Avatar" className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center font-[family-name:var(--font-bebas)] text-2xl text-[rgba(240,239,235,0.3)]">

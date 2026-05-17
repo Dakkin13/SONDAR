@@ -1,11 +1,58 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Instrument, Genre, Objective } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
+import { useToast } from '@/components/ui/Toast'
+
+async function fetchArtistThumb(name: string): Promise<string | null> {
+  try {
+    const r = await fetch(
+      `https://www.theaudiodb.com/api/v1/json/2/search.php?s=${encodeURIComponent(name)}`,
+      { signal: AbortSignal.timeout(4000) }
+    )
+    const d = await r.json()
+    return (d?.artists?.[0]?.strArtistThumb as string) ?? null
+  } catch {
+    return null
+  }
+}
+
+function ArtistChip({ name, imageUrl }: { name: string; imageUrl: string | null }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const showImg = imageUrl && !imgFailed
+
+  return (
+    <span
+      className="flex items-center gap-2 rounded-full px-2 py-1"
+      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
+    >
+      <span style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+        border: showImg ? '1px solid rgba(255,92,0,0.35)' : 'none',
+        background: showImg ? 'transparent' : 'rgba(255,92,0,0.25)',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        {showImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl!}
+            alt={name}
+            onError={() => setImgFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+          />
+        ) : (
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#FF5C00' }}>
+            {name[0]?.toUpperCase()}
+          </span>
+        )}
+      </span>
+      <span style={{ fontSize: 11, color: 'rgba(240,239,235,0.85)', fontWeight: 500 }}>{name}</span>
+    </span>
+  )
+}
 
 interface ProfileData {
   id: string
@@ -22,6 +69,8 @@ interface ProfileData {
   last_active: string | null
   photo_urls: string[]
   influences: string[] | null
+  profile_views: number | null
+  created_at: string | null
 }
 
 const INSTRUMENT_EMOJI: Record<string, string> = {
@@ -74,27 +123,56 @@ function shortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 6).toUpperCase()
 }
 
+function isNewProfile(createdAt: string | null): boolean {
+  if (!createdAt) return false
+  return Date.now() - new Date(createdAt).getTime() < 7 * 86400000
+}
+
 export default function ProfilePage() {
   const { id } = useParams<{ id: string }>()
   const router  = useRouter()
   const supabase = createClient()
+  const { toast } = useToast()
 
   const [profile, setProfile] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [influenceImages, setInfluenceImages] = useState<Record<string, string | null>>({})
+  const fetchedRef = useRef(false)
 
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      setCurrentUserId(user?.id ?? null)
+
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences, location')
+        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences, location, profile_views, created_at')
         .eq('id', id)
         .single()
 
       if (error || !data) { setNotFound(true) }
       else {
         setProfile(data as ProfileData)
+
+        // Fetch artist thumbnails for influences in the background
+        const influences = (data as ProfileData).influences ?? []
+        if (influences.length > 0 && !fetchedRef.current) {
+          fetchedRef.current = true
+          void Promise.all(
+            influences.map(async (artist) => {
+              const url = await fetchArtistThumb(artist)
+              setInfluenceImages(prev => ({ ...prev, [artist]: url }))
+            })
+          )
+        }
+
+        // Increment view counter — only if viewing someone else's profile
+        if (user && user.id !== id) {
+          void supabase.rpc('increment_profile_views', { profile_id: id })
+        }
         // Compute approximate distance if we can get user's position and musician's location
         const loc = (data as Record<string, unknown>).location as { type?: string; coordinates?: [number, number] } | null
         if (loc?.type === 'Point' && Array.isArray(loc.coordinates) && loc.coordinates.length === 2) {
@@ -146,6 +224,23 @@ export default function ProfilePage() {
   const initials     = (profile.display_name ?? '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
   const igUrl        = profile.instagram_url ?? (audioType === 'instagram' ? profile.audio_url : null)
   const extUrl       = audioType === 'link' ? profile.audio_url : null
+  const isNew        = isNewProfile(profile.created_at)
+  const isOwnProfile = currentUserId === profile.id
+
+  function handleShare() {
+    const url = `${window.location.origin}/profile/${profile!.id}`
+    if (navigator.share) {
+      void navigator.share({ title: `${profile!.display_name ?? 'Musician'} on Sondar`, url }).catch(() => {})
+    } else {
+      void navigator.clipboard.writeText(url).then(() => toast('Profile link copied!', 'default'))
+    }
+  }
+
+  function handleReport() {
+    const subject = encodeURIComponent(`Report: ${profile!.id}`)
+    const body = encodeURIComponent(`I want to report this profile:\nUser ID: ${profile!.id}\nName: ${profile!.display_name ?? 'Unknown'}\n\nReason:\n`)
+    window.open(`mailto:hello@sondar.app?subject=${subject}&body=${body}`)
+  }
 
   return (
     <div className="relative overflow-y-auto" style={{ minHeight: '100dvh', paddingBottom: 90, zIndex: 1, overflowX: 'clip' }}>
@@ -197,6 +292,11 @@ export default function ProfilePage() {
               <div className="mt-1.5 h-px w-8 bg-[#FF5C00]" />
             </div>
             <div className="flex items-center gap-2">
+              {isNew && (
+                <div className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.4)] bg-[rgba(255,92,0,0.12)] px-2 py-0.5">
+                  <span className="text-[6.5px] font-bold tracking-[0.15em] text-[#FF5C00]">NEW</span>
+                </div>
+              )}
               {activeStatus && (
                 <div className="flex items-center gap-1.5 rounded-full border border-[#B8FF00] px-2.5 py-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#B8FF00]" />
@@ -209,16 +309,17 @@ export default function ProfilePage() {
           {/* Avatar section */}
           <div className="relative mx-4 mb-0 h-[160px] overflow-hidden rounded-xl bg-[#060606]">
             {profile.avatar_url && (
-              <img src={profile.avatar_url} alt="" aria-hidden
-                className="absolute inset-0 h-full w-full object-cover"
+              <Image src={profile.avatar_url} alt="" aria-hidden fill
+                className="object-cover"
                 style={{ opacity: 0.15, filter: 'blur(20px)', transform: 'scale(1.1)' }} />
             )}
             <div className="absolute inset-0 flex items-center justify-center">
               <div style={{ width: 80, height: 80, borderRadius: '50%',
                 background: 'rgba(255,92,0,0.15)', position: 'absolute', filter: 'blur(30px)' }} />
               {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt={profile.display_name ?? 'Musician'}
-                  style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover',
+                <Image src={profile.avatar_url} alt={profile.display_name ?? 'Musician'}
+                  width={88} height={88}
+                  style={{ borderRadius: '50%', objectFit: 'cover',
                     border: '2px solid rgba(255,92,0,0.6)',
                     boxShadow: '0 0 24px rgba(255,92,0,0.35)', position: 'relative', zIndex: 1 }} />
               ) : (
@@ -314,19 +415,14 @@ export default function ProfilePage() {
           {/* Influences */}
           {(profile.influences?.length ?? 0) > 0 && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-              <p className="mb-2 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Sounds like</p>
-              <div className="flex flex-wrap gap-1.5">
+              <p className="mb-2.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Sounds like</p>
+              <div className="flex flex-wrap gap-2">
                 {profile.influences!.map(artist => (
-                  <span key={artist}
-                    className="flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>
-                    <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(255,92,0,0.3)',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 8, fontWeight: 700, color: '#FF5C00', flexShrink: 0 }}>
-                      {artist[0]?.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: 10, color: 'rgba(240,239,235,0.8)' }}>{artist}</span>
-                  </span>
+                  <ArtistChip
+                    key={artist}
+                    name={artist}
+                    imageUrl={influenceImages[artist] ?? null}
+                  />
                 ))}
               </div>
             </div>
@@ -337,9 +433,9 @@ export default function ProfilePage() {
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
                 {profile.photo_urls.map((url, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={url + i} src={url} alt={`Photo ${i + 1}`}
-                    className="h-[90px] w-[90px] flex-shrink-0 rounded-lg object-cover"
+                  <Image key={url + i} src={url} alt={`Photo ${i + 1}`}
+                    width={90} height={90}
+                    className="flex-shrink-0 rounded-lg object-cover"
                     style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
                 ))}
               </div>
@@ -351,7 +447,7 @@ export default function ProfilePage() {
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
               <div className="aspect-video overflow-hidden rounded-xl">
-                <iframe src={ytEmbed} title="YouTube player"
+                <iframe src={ytEmbed} title="YouTube player" loading="lazy"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen className="h-full w-full border-0" />
               </div>
@@ -361,27 +457,51 @@ export default function ProfilePage() {
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
               <div className="overflow-hidden rounded-xl">
-                <iframe title="SoundCloud player" scrolling="no" allow="autoplay" src={scEmbed}
+                <iframe title="SoundCloud player" loading="lazy" scrolling="no" allow="autoplay" src={scEmbed}
                   className="h-[100px] w-full border-0" />
               </div>
             </div>
           )}
 
           {/* Card footer */}
-          <div className="mx-5 flex items-end justify-between border-t border-[rgba(240,239,235,0.06)] pb-5 pt-3">
-            <p className="text-[7px] tracking-[0.12em] text-[rgba(240,239,235,0.2)]">SDR-{shortId(profile.id)}</p>
-            <div className="flex gap-2">
-              {igUrl && (
-                <a href={igUrl} target="_blank" rel="noopener noreferrer"
-                  className="rounded-full border border-[rgba(240,239,235,0.12)] px-3 py-1 text-[9px] tracking-wider text-[rgba(240,239,235,0.5)] transition-colors hover:border-[rgba(255,85,0,0.4)] hover:text-[#FF5500]">
-                  IG
-                </a>
-              )}
-              {extUrl && (
-                <a href={extUrl} target="_blank" rel="noopener noreferrer"
-                  className="rounded-full border border-[rgba(240,239,235,0.12)] px-3 py-1 text-[9px] tracking-wider text-[rgba(240,239,235,0.5)] transition-colors hover:border-[rgba(255,85,0,0.4)] hover:text-[#FF5500]">
-                  LISTEN
-                </a>
+          <div className="mx-5 border-t border-[rgba(240,239,235,0.06)] pb-5 pt-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-[7px] tracking-[0.12em] text-[rgba(240,239,235,0.2)]">SDR-{shortId(profile.id)}</p>
+                {(profile.profile_views ?? 0) > 0 && isOwnProfile && (
+                  <p className="text-[7px] tracking-[0.1em] text-[rgba(240,239,235,0.2)]">· {profile.profile_views} views</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {igUrl && (
+                  <a href={igUrl} target="_blank" rel="noopener noreferrer"
+                    className="rounded-full border border-[rgba(240,239,235,0.12)] px-3 py-1 text-[9px] tracking-wider text-[rgba(240,239,235,0.5)] transition-colors hover:border-[rgba(255,85,0,0.4)] hover:text-[#FF5500]">
+                    IG
+                  </a>
+                )}
+                {extUrl && (
+                  <a href={extUrl} target="_blank" rel="noopener noreferrer"
+                    className="rounded-full border border-[rgba(240,239,235,0.12)] px-3 py-1 text-[9px] tracking-wider text-[rgba(240,239,235,0.5)] transition-colors hover:border-[rgba(255,85,0,0.4)] hover:text-[#FF5500]">
+                    LISTEN
+                  </a>
+                )}
+              </div>
+            </div>
+            {/* Share + Report row */}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={handleShare}
+                className="flex-1 rounded-full border border-[rgba(240,239,235,0.10)] py-2 text-[10px] font-medium tracking-wider text-[rgba(240,239,235,0.45)] transition-colors hover:border-[rgba(240,239,235,0.25)] hover:text-[#F0EFEB]"
+              >
+                Share profile
+              </button>
+              {!isOwnProfile && (
+                <button
+                  onClick={handleReport}
+                  className="rounded-full border border-[rgba(240,239,235,0.07)] py-2 px-4 text-[10px] font-medium tracking-wider text-[rgba(240,239,235,0.2)] transition-colors hover:border-[rgba(255,80,80,0.3)] hover:text-[rgba(255,100,100,0.7)]"
+                >
+                  Report
+                </button>
               )}
             </div>
           </div>

@@ -244,8 +244,11 @@ function MusicianProfileCard({ musician: m, index }: { musician: NearbyMusician;
             {(m.display_name ?? 'ANONYMOUS').toUpperCase()}
           </h3>
           {m.distance_km != null && (
-            <p className="mt-1 text-sm font-semibold text-[rgba(240,239,235,0.55)]">
-              ~{m.distance_km < 1 ? `${Math.round(m.distance_km * 1000)} m` : `${m.distance_km.toFixed(1)} km`} away
+            <p className="mt-1">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(255,255,255,0.06)] px-2 py-0.5 text-[10px] font-medium text-[rgba(240,239,235,0.5)]">
+                <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#FF5C00', display: 'inline-block', opacity: 0.7 }} />
+                {m.distance_km < 1 ? `${Math.round(m.distance_km * 1000)} m away` : `${m.distance_km.toFixed(1)} km away`}
+              </span>
             </p>
           )}
 
@@ -272,18 +275,16 @@ function MusicianProfileCard({ musician: m, index }: { musician: NearbyMusician;
           </div>
 
           {/* Stats row */}
-          <div className="mt-2.5 grid grid-cols-2 gap-1.5 border-t border-[rgba(240,239,235,0.05)] pt-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-[rgba(240,239,235,0.05)] pt-2">
             {m.city && (
-              <div>
-                <p className="text-[6px] tracking-[0.18em] text-[rgba(240,239,235,0.25)]">CITY</p>
-                <p className="text-[8px] font-semibold text-[#F0EFEB]">{m.city.toUpperCase()}</p>
-              </div>
+              <span className="rounded-full bg-[rgba(255,255,255,0.05)] px-2.5 py-0.5 text-[9px] text-[rgba(240,239,235,0.45)]">
+                📍 {m.city}
+              </span>
             )}
             {m.objective && (
-              <div>
-                <p className="text-[6px] tracking-[0.18em] text-[rgba(240,239,235,0.25)]">LOOKING FOR</p>
-                <p className="text-[8px] font-semibold text-[#F0EFEB]">{m.objective.toUpperCase()}</p>
-              </div>
+              <span className="rounded-full bg-[rgba(255,255,255,0.05)] px-2.5 py-0.5 text-[9px] text-[rgba(240,239,235,0.45)]">
+                🎯 {m.objective}
+              </span>
             )}
           </div>
         </div>
@@ -336,6 +337,7 @@ export default function ExplorePage() {
   const [instrument, setInstrument] = useState('')
   const [objective, setObjective] = useState('')
   const [activeOnly, setActiveOnly] = useState(false)
+  const [search, setSearch] = useState('')
 
   const lastFetchLatRef = useRef(DEFAULT_LAT)
   const lastFetchLngRef = useRef(DEFAULT_LNG)
@@ -348,22 +350,11 @@ export default function ExplorePage() {
     lastFetchLatRef.current = lat
     lastFetchLngRef.current = lng
     const supabase = createClient()
-    console.log('[Explore] Fetching musicians:', { user_lat: lat, user_lng: lng, radius_km: 100 })
 
     const { data: rpcData, error: rpcError } = await supabase
       .rpc('get_nearby_musicians', { user_lat: lat, user_lng: lng, radius_km: 100 })
 
-    if (rpcError) {
-      console.error('[Explore] RPC error:', {
-        message: rpcError.message,
-        details: rpcError.details,
-        hint: rpcError.hint,
-        code: rpcError.code,
-      })
-    }
-
     if (!rpcError && rpcData && rpcData.length > 0) {
-      console.log('[Explore] RPC returned', rpcData.length, 'musicians')
       setMusicians(rpcData as NearbyMusician[])
       setLoading(false)
       setRefreshing(false)
@@ -371,15 +362,12 @@ export default function ExplorePage() {
     }
 
     // Fallback: direct profiles query when RPC fails or returns nothing
-    console.log('[Explore] Falling back to direct profiles query')
-    const { data: fallbackData, error: fallbackError } = await supabase
+    const { data: fallbackData } = await supabase
       .from('profiles')
       .select('id, display_name, avatar_url, photo_urls, instruments, genres, objective, bio, city, last_active')
       .eq('is_onboarded', true)
       .eq('is_archived', false)
       .limit(30)
-
-    console.log('[Explore] Fallback result:', { count: fallbackData?.length ?? 0, error: fallbackError })
 
     if (fallbackData && fallbackData.length > 0) {
       const withCoords = fallbackData.map((p, i) => ({
@@ -421,8 +409,7 @@ export default function ExplorePage() {
         }
         void fetchMusicians(fuzz.lat, fuzz.lng)
       },
-      (err) => {
-        console.log('[Explore] Location denied:', err.message)
+      () => {
         toast('Enable location for better results — using your profile city instead.', 'default')
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
@@ -447,15 +434,22 @@ export default function ExplorePage() {
     if (instrument && !(m.instruments ?? []).includes(instrument as never)) return false
     if (objective && m.objective !== objective) return false
     if (activeOnly && !isActiveToday(m.last_active)) return false
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      const nameMatch = (m.display_name ?? '').toLowerCase().includes(q)
+      const cityMatch = (m.city ?? '').toLowerCase().includes(q)
+      if (!nameMatch && !cityMatch) return false
+    }
     return true
   })
 
-  const hasFilters = !!(instrument || objective || activeOnly)
+  const hasFilters = !!(instrument || objective || activeOnly || search.trim())
 
   function clearFilters() {
     setInstrument('')
     setObjective('')
     setActiveOnly(false)
+    setSearch('')
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -489,8 +483,8 @@ export default function ExplorePage() {
           className="glass flex min-w-0 flex-col gap-2.5 rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3"
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
-          {/* Row 1: wordmark + count */}
-          <div className="flex items-center justify-between">
+          {/* Row 1: wordmark + active toggle + count */}
+          <div className="flex items-center gap-2">
             <Link
               href="/"
               className="flex-shrink-0 text-[22px] leading-none tracking-[0.08em] text-[#F0EFEB]"
@@ -498,14 +492,51 @@ export default function ExplorePage() {
             >
               SONDAR
             </Link>
-            <span className="text-[11px] text-[rgba(240,239,235,0.35)]">
-              {loading ? '…' : `${filtered.length} musician${filtered.length !== 1 ? 's' : ''}`}
-            </span>
+            <div className="flex flex-1 items-center justify-end gap-2 min-w-0">
+              <button
+                onClick={() => setActiveOnly((v) => !v)}
+                className="shrink-0 rounded-xl border px-2.5 py-1 text-[10px] font-medium transition-all duration-150"
+                style={
+                  activeOnly
+                    ? { borderColor: 'rgba(184,255,0,0.4)', background: 'rgba(184,255,0,0.10)', color: '#B8FF00' }
+                    : { borderColor: 'rgba(240,239,235,0.10)', background: 'rgba(240,239,235,0.05)', color: 'rgba(240,239,235,0.55)' }
+                }
+              >
+                Active today
+              </button>
+              <span className="shrink-0 text-[11px] text-[rgba(240,239,235,0.35)]">
+                {loading ? '…' : `${filtered.length} musician${filtered.length !== 1 ? 's' : ''}`}
+              </span>
+            </div>
           </div>
 
-          {/* Row 2: filter controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Instrument dropdown */}
+          {/* Row 2: search */}
+          <div className="relative">
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
+              width={13} height={13} viewBox="0 0 24 24" fill="none"
+              stroke="rgba(240,239,235,0.35)" strokeWidth={2.2} strokeLinecap="round"
+            >
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by name or city…"
+              className="w-full rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] py-1.5 pl-8 pr-3 text-[11px] text-[rgba(240,239,235,0.8)] placeholder-[rgba(240,239,235,0.3)] outline-none focus:border-[rgba(255,92,0,0.4)]"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
+                style={{ fontSize: 14, lineHeight: 1 }}
+              >×</button>
+            )}
+          </div>
+
+          {/* Row 3: instrument + objective dropdowns + clear */}
+          <div className="flex items-center gap-2">
             <select
               value={instrument}
               onChange={(e) => setInstrument(e.target.value)}
@@ -519,7 +550,6 @@ export default function ExplorePage() {
               ))}
             </select>
 
-            {/* Objective dropdown */}
             <select
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
@@ -533,28 +563,6 @@ export default function ExplorePage() {
               ))}
             </select>
 
-            {/* Active today toggle */}
-            <button
-              onClick={() => setActiveOnly((v) => !v)}
-              className="shrink-0 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150"
-              style={
-                activeOnly
-                  ? {
-                      borderColor: 'rgba(184,255,0,0.4)',
-                      background: 'rgba(184,255,0,0.10)',
-                      color: '#B8FF00',
-                    }
-                  : {
-                      borderColor: 'rgba(240,239,235,0.10)',
-                      background: 'rgba(240,239,235,0.05)',
-                      color: 'rgba(240,239,235,0.55)',
-                    }
-              }
-            >
-              Active today
-            </button>
-
-            {/* Clear filters */}
             {hasFilters && (
               <button
                 onClick={clearFilters}
@@ -571,7 +579,7 @@ export default function ExplorePage() {
       <div
         ref={scrollRef}
         className="px-3 pb-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] sm:px-4"
-        style={{ paddingTop: 'calc(120px + env(safe-area-inset-top, 0px))' }}
+        style={{ paddingTop: 'calc(178px + env(safe-area-inset-top, 0px))' }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >

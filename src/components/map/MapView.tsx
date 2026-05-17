@@ -243,18 +243,10 @@ export default function MapView({ musicians, selectedId, onPinClick, center, fil
           if (coords) { [pinLng, pinLat] = coords }
         }
 
-        if (pinLat == null || pinLng == null) {
-          console.warn('[MapView] Skipping — no valid coords for:', musician.display_name)
-          continue
-        }
+        if (pinLat == null || pinLng == null) continue
 
         // Validate bounds (catches zero/NaN/reversed coords)
-        if (Math.abs(pinLng) > 180 || Math.abs(pinLat) > 90) {
-          console.warn('[MapView] Out-of-bounds coords for', musician.display_name, { pinLng, pinLat })
-          continue
-        }
-
-        console.log(`[MapView] Pin for ${musician.display_name ?? musician.id}: [${pinLng.toFixed(5)}, ${pinLat.toFixed(5)}]`)
+        if (Math.abs(pinLng) > 180 || Math.abs(pinLat) > 90) continue
 
         const isSelected = musician.id === selectedId
         const el = createPinEl(musician, isSelected)

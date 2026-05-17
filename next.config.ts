@@ -11,9 +11,14 @@ const withPWA = require('next-pwa')({
 })
 
 const nextConfig: NextConfig = {
-  // Empty turbopack config silences the "webpack config present" error in dev.
-  // next-pwa v5 injects webpack config but is disabled in development anyway.
   turbopack: {},
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: '*.supabase.co' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+      { protocol: 'https', hostname: '*.googleusercontent.com' },
+    ],
+  },
 }
 
 export default withPWA(nextConfig)

@@ -140,9 +140,6 @@ export default function OnboardingPage() {
         user = refreshed
       }
 
-      // ── Step B: log raw form state ──────────────────────────────────────────
-      console.log('=== FORM STATE AT SUBMIT ===', JSON.stringify(form, null, 2))
-
       // ── Step C: build upsert payload ────────────────────────────────────────
       // city: form.city is updated on every keystroke via CityAutocomplete onChange,
       // so it holds the typed text even if the user never picks from the dropdown.
@@ -169,8 +166,6 @@ export default function OnboardingPage() {
         is_onboarded:   true,
       }
 
-      console.log('Upsert payload:', JSON.stringify(payload, null, 2))
-
       // ── Step D: validate before hitting the DB ──────────────────────────────
       const validationErrors = validateProfilePayload(payload as Record<string, unknown>)
       if (validationErrors.length > 0) {
@@ -183,7 +178,6 @@ export default function OnboardingPage() {
         .upsert(payload, { onConflict: 'id' })
 
       if (upsertError) throw new Error('Upsert error: ' + upsertError.message)
-      console.log('Upsert ok')
 
       // ── Step F: set PostGIS location (separate RPC — geography column) ───────
       // Run this SQL once in Supabase SQL Editor before using:
@@ -198,13 +192,11 @@ export default function OnboardingPage() {
       //   $$ LANGUAGE plpgsql SECURITY DEFINER;
       //
       if (form.locationLat !== null && form.locationLng !== null) {
-        const { error: locationError } = await supabase.rpc('set_user_location', {
+        await supabase.rpc('set_user_location', {
           user_id: user.id,
           lat: form.locationLat,
           lng: form.locationLng,
         })
-        if (locationError) console.warn('set_user_location failed (non-fatal):', locationError.message)
-        else console.log('Location set ok')
       }
 
       // ── Step G: show confirmation then trigger GlobalBackground bloom ─────

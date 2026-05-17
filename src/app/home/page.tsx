@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
@@ -40,10 +41,15 @@ const SPACE_PINS: SpacePin[] = [
   { name: 'Proberaum Berlin',        neighborhood: 'Mitte',         city: 'Berlin', price: 'from €6/hr', lat: 52.5192, lng: 13.3986 },
 ]
 
+const DEFAULT_LAT = 40.4168
+const DEFAULT_LNG = -3.7038
+
 interface ProfileRow {
   id: string
   display_name: string | null
   city: string | null
+  lat: number | null
+  lng: number | null
   avatar_url: string | null
   bio: string | null
   audio_url: string | null
@@ -119,18 +125,20 @@ export default function HomePage() {
 
       const { data: prof } = await supabase
         .from('profiles')
-        .select('id, display_name, city, avatar_url, bio, audio_url, instruments, genres, years_practicing, age_range, band_experience, influences')
+        .select('id, display_name, city, lat, lng, avatar_url, bio, audio_url, instruments, genres, years_practicing, age_range, band_experience, influences')
         .eq('id', user.id)
         .single()
 
       if (prof) setProfile(prof as ProfileRow)
 
+      const userLat = (prof as ProfileRow | null)?.lat ?? DEFAULT_LAT
+      const userLng = (prof as ProfileRow | null)?.lng ?? DEFAULT_LNG
+
       const { data: nearby } = await supabase.rpc('get_nearby_musicians', {
-        user_id:    user.id,
-        radius_km:  50,
-        max_results: 10,
+        user_lat: userLat,
+        user_lng: userLng,
+        radius_km: 50,
       })
-      // Filter out the current user from the musicians list
       if (nearby) setMusicians((nearby as NearbyMusician[]).filter(m => m.id !== user.id))
 
       setLoading(false)
@@ -196,13 +204,12 @@ export default function HomePage() {
           </div>
           <button
             onClick={() => router.push('/profile/me')}
-            className="flex-shrink-0"
+            className="flex-shrink-0 transition-transform active:scale-95"
             aria-label="My profile"
           >
             {profile?.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={profile.avatar_url} alt={profile.display_name ?? 'Me'}
-                style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover',
+              <Image src={profile.avatar_url} alt={profile.display_name ?? 'Me'} width={48} height={48}
+                style={{ borderRadius: '50%', objectFit: 'cover',
                   border: '2px solid #8B5CF6', boxShadow: '0 0 0 4px rgba(139,92,246,0.20), 0 0 16px rgba(139,92,246,0.30)' }} />
             ) : (
               <div className="flex items-center justify-center"
@@ -216,34 +223,27 @@ export default function HomePage() {
           </button>
         </motion.div>
 
-        {/* ── Complete profile card — glass-apple with orange left border ── */}
+        {/* ── Complete profile card ── */}
         {score < 100 && (
-          <motion.div variants={fadeUp} className="mb-8">
-            <button
-              onClick={() => setShowCompleteModal(true)}
-              className="w-full text-left"
-            >
-              <div
-                className="glass-apple p-5"
-                style={{ borderLeft: '2px solid #FF5C00' }}
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[#F0EFEB]">Complete your profile</p>
-                  <span className="text-xs font-bold text-[#FF5500]">{score}%</span>
+          <motion.div variants={fadeUp} className="mb-6">
+            <button onClick={() => setShowCompleteModal(true)} className="w-full text-left">
+              <div className="glass-apple p-4" style={{ borderLeft: '2px solid #FF5C00' }}>
+                <div className="mb-2.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-[#F0EFEB]">Complete your profile</span>
+                  </div>
+                  <span className="rounded-full bg-[rgba(255,85,0,0.12)] px-2 py-0.5 text-[11px] font-bold text-[#FF5500]">{score}%</span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[rgba(240,239,235,0.08)]">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-[rgba(240,239,235,0.07)]">
                   <motion.div
                     className="h-full rounded-full"
                     initial={{ width: 0 }}
                     animate={{ width: `${score}%` }}
                     transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-                    style={{
-                      background: 'linear-gradient(90deg, #FF5C00 0%, #8B5CF6 100%)',
-                      boxShadow: '0 0 8px rgba(255,85,0,0.5)',
-                    }}
+                    style={{ background: 'linear-gradient(90deg, #FF5C00 0%, #8B5CF6 100%)', boxShadow: '0 0 8px rgba(255,85,0,0.4)' }}
                   />
                 </div>
-                <p className="mt-2.5 text-xs text-[rgba(240,239,235,0.4)]">
+                <p className="mt-2 text-[11px] text-[rgba(240,239,235,0.35)]">
                   A complete profile gets 3× more connection requests
                 </p>
               </div>
@@ -252,26 +252,42 @@ export default function HomePage() {
         )}
 
         {/* ── Musicians near you ── */}
-        {musicians.length > 0 && (
-          <motion.div variants={fadeUp} className="mb-8">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
-                Musicians near you
+        {musicians.length === 0 && (
+          <motion.div variants={fadeUp} className="mb-6">
+            <div className="flex flex-col items-center gap-3 rounded-2xl py-8 text-center"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <p className="font-[family-name:var(--font-bebas)] text-xl tracking-widest text-[rgba(240,239,235,0.2)]">
+                NO MUSICIANS NEARBY YET
               </p>
+              <p className="text-xs text-[rgba(240,239,235,0.3)]">Be the first to show up on the map.</p>
               <button
                 onClick={() => router.push('/explore')}
-                className="text-xs text-[rgba(255,92,0,0.7)] transition-colors hover:text-[#FF5C00]"
+                className="rounded-full border border-[rgba(255,92,0,0.3)] px-4 py-1.5 text-xs text-[rgba(255,92,0,0.7)] transition-colors hover:text-[#FF5C00]"
+              >
+                Browse all →
+              </button>
+            </div>
+          </motion.div>
+        )}
+        {musicians.length > 0 && (
+          <motion.div variants={fadeUp} className="mb-6">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">
+                  Musicians near you
+                </p>
+              </div>
+              <button
+                onClick={() => router.push('/explore')}
+                className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.2)] bg-[rgba(255,92,0,0.06)] px-2.5 py-1 text-[10px] font-medium text-[rgba(255,92,0,0.75)] transition-all hover:border-[rgba(255,92,0,0.4)] hover:bg-[rgba(255,92,0,0.10)] hover:text-[#FF5C00]"
               >
                 See all →
               </button>
             </div>
 
-            {/* Scroll container — glass-apple-subtle */}
-            <div
-              className="glass-apple-subtle"
-              style={{ padding: '12px 8px' }}
-            >
-              <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            <div style={{ padding: '10px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex gap-2.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
                 {musicians.slice(0, 6).map((m) => {
                   const active = isActiveToday(m.last_active)
                   const initials2 = (m.display_name ?? '?').split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
@@ -279,50 +295,41 @@ export default function HomePage() {
                     <button
                       key={m.id}
                       onClick={() => router.push(`/profile/${m.id}`)}
-                      className="group flex-shrink-0 flex flex-col items-center gap-2 p-3 text-center transition-all duration-200"
+                      className="flex-shrink-0 flex flex-col items-center gap-1.5 p-3 text-center transition-all duration-200 active:scale-95"
                       style={{
-                        width: 88,
-                        background: 'linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 50%, rgba(255,255,255,0.07) 100%)',
-                        backdropFilter: 'blur(48px) saturate(180%)',
-                        WebkitBackdropFilter: 'blur(48px) saturate(180%)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        borderBottomColor: 'rgba(255,255,255,0.05)',
-                        borderRightColor: 'rgba(255,255,255,0.05)',
-                        borderRadius: 16,
-                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 16px rgba(0,0,0,0.20)',
-                      }}
-                      onMouseEnter={e => {
-                        const el = e.currentTarget
-                        el.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.25), 0 0 0 1px rgba(255,92,0,0.3), 0 12px 40px rgba(0,0,0,0.30), 0 0 20px rgba(255,92,0,0.08)'
-                      }}
-                      onMouseLeave={e => {
-                        const el = e.currentTarget
-                        el.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 16px rgba(0,0,0,0.20)'
+                        width: 96,
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.09)',
+                        borderTopColor: 'rgba(255,255,255,0.15)',
+                        borderRadius: 14,
                       }}
                     >
                       <div style={{ position: 'relative' }}>
                         {m.avatar_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={m.avatar_url} alt={m.display_name ?? ''}
-                            style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover',
-                              border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.12)' }} />
+                          <Image src={m.avatar_url} alt={m.display_name ?? ''} width={54} height={54}
+                            style={{ borderRadius: '50%', objectFit: 'cover',
+                              border: active ? '2px solid #FF5C00' : '2px solid rgba(240,239,235,0.1)',
+                              boxShadow: active ? '0 0 10px rgba(255,92,0,0.35)' : 'none' }} />
                         ) : (
-                          <div className="flex items-center justify-center text-xl"
-                            style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
-                              border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.12)' }}>
+                          <div className="flex items-center justify-center"
+                            style={{ width: 54, height: 54, borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
+                              border: active ? '2px solid #FF5C00' : '2px solid rgba(240,239,235,0.1)',
+                              fontSize: 20 }}>
                             {INSTRUMENT_EMOJI[m.instruments[0]] ?? '🎵'}
                           </div>
                         )}
                         {active && (
-                          <span style={{ position: 'absolute', bottom: 1, right: 1, width: 10, height: 10,
-                            borderRadius: '50%', background: '#34d399', border: '1.5px solid #0D0D0D' }} />
+                          <span style={{ position: 'absolute', bottom: 2, right: 2, width: 9, height: 9,
+                            borderRadius: '50%', background: '#22c55e', border: '1.5px solid #0D0D0D',
+                            boxShadow: '0 0 4px rgba(34,197,94,0.6)' }} />
                         )}
                       </div>
-                      <p className="w-full truncate text-xs font-medium text-[rgba(240,239,235,0.85)]">
-                        {m.display_name ?? initials2}
+                      <p className="w-full truncate text-[11px] font-semibold text-[rgba(240,239,235,0.88)]">
+                        {(m.display_name ?? initials2).split(' ')[0]}
                       </p>
-                      <p className="text-[10px] text-[rgba(240,239,235,0.35)]">
-                        {INSTRUMENT_EMOJI[m.instruments[0]] ?? '🎵'} {m.distance_km != null ? `${Math.round(m.distance_km)}km` : m.city ?? ''}
+                      <p className="text-[9px] text-[rgba(240,239,235,0.35)] leading-tight">
+                        {m.instruments[0] ? m.instruments[0].toUpperCase() : ''}
+                        {m.distance_km != null ? ` · ${Math.round(m.distance_km)}km` : m.city ? ` · ${m.city}` : ''}
                       </p>
                     </button>
                   )
@@ -333,32 +340,45 @@ export default function HomePage() {
         )}
 
         {/* ── Rehearsal spaces ── */}
-        <motion.div variants={fadeUp} className="mb-8">
+        <motion.div variants={fadeUp} className="mb-6">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
-              Rehearsal spaces near you
-            </p>
+            <div className="flex items-center gap-2">
+              <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">
+                Rehearsal spaces
+              </p>
+            </div>
             <button
               onClick={() => router.push('/spaces')}
-              className="text-xs text-[rgba(255,92,0,0.7)] transition-colors hover:text-[#FF5C00]"
+              className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.2)] bg-[rgba(255,92,0,0.06)] px-2.5 py-1 text-[10px] font-medium text-[rgba(255,92,0,0.75)] transition-all hover:border-[rgba(255,92,0,0.4)] hover:bg-[rgba(255,92,0,0.10)] hover:text-[#FF5C00]"
             >
               Show more →
             </button>
           </div>
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             {spaces.map((s) => (
               <div
                 key={s.name}
-                className="glass-apple flex items-center justify-between p-4"
+                className="glass-apple flex items-center gap-3 px-4 py-3.5"
               >
-                <div>
-                  <p className="text-[15px] leading-tight text-[#F0EFEB]"
-                    style={{ fontFamily: 'var(--font-bebas)', letterSpacing: '0.06em' }}>
+                <div
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: 'rgba(255,92,0,0.10)', border: '1px solid rgba(255,92,0,0.15)' }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-[13px] leading-tight text-[#F0EFEB]"
+                    style={{ fontFamily: 'var(--font-bebas)', letterSpacing: '0.05em' }}>
                     {s.name}
                   </p>
-                  <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.4)]">{s.area}</p>
+                  <p className="mt-0.5 text-[11px] text-[rgba(240,239,235,0.38)]">{s.area}</p>
                 </div>
-                <span className="text-xs font-semibold text-[#FF5500]">{s.price}</span>
+                <span className="flex-shrink-0 rounded-full bg-[rgba(255,85,0,0.12)] px-2.5 py-1 text-[10px] font-semibold text-[#FF5500]">
+                  {s.price}
+                </span>
               </div>
             ))}
           </div>
@@ -367,9 +387,10 @@ export default function HomePage() {
         {/* ── Rehearsal spaces map ── */}
         <motion.div variants={fadeUp} className="mt-2 mb-6">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[11px] tracking-[0.16em] uppercase text-[rgba(240,239,235,0.35)]">
-              Map
-            </p>
+            <div className="flex items-center gap-2">
+              <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">Map</p>
+            </div>
             <Link href="/spaces/map"
               style={{
                 fontSize: 11, fontWeight: 600, letterSpacing: '0.10em',
@@ -388,21 +409,27 @@ export default function HomePage() {
 
         {/* ── Events near you ── */}
         <motion.div variants={fadeUp} className="mb-4">
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
-            Events near you
-          </p>
-          <div className="glass-apple p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">
+              Events near you
+            </p>
+          </div>
+          <div className="glass-apple px-4 py-3.5">
             <div className="flex items-center gap-3">
               <div
                 className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-xl"
-                style={{ background: 'rgba(255,92,0,0.12)' }}
+                style={{ background: 'rgba(255,92,0,0.10)', border: '1px solid rgba(255,92,0,0.15)' }}
               >
-                🎵
+                🎸
               </div>
-              <div>
-                <p className="text-sm font-medium text-[#F0EFEB]">Sondar Open Jam</p>
-                <p className="text-xs text-[rgba(240,239,235,0.4)]">Coming soon</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-[#F0EFEB]">Sondar Open Jam</p>
+                <p className="text-[11px] text-[rgba(240,239,235,0.38)] mt-0.5">Madrid · Coming soon</p>
               </div>
+              <span className="flex-shrink-0 rounded-full border border-[rgba(240,239,235,0.1)] px-2.5 py-1 text-[9px] font-semibold uppercase tracking-wider text-[rgba(240,239,235,0.3)]">
+                Soon
+              </span>
             </div>
           </div>
         </motion.div>
@@ -421,16 +448,7 @@ export default function HomePage() {
                   .select('*')
                   .eq('id', currentUserId)
                   .single()
-                if (fresh) {
-                  setProfile(fresh as ProfileRow)
-                  console.log('[Home] Fresh profile after modal:', {
-                    influences: fresh.influences,
-                    years_practicing: fresh.years_practicing,
-                    age_range: fresh.age_range,
-                    band_experience: fresh.band_experience,
-                    score: profileScore(fresh as ProfileRow),
-                  })
-                }
+                if (fresh) setProfile(fresh as ProfileRow)
               }
             }}
           />

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
@@ -21,6 +22,7 @@ interface ChatMessage {
   to_id: string
   content: string
   read_at: string | null
+  liked_by: string[]
 }
 
 function formatBubbleTime(iso: string): string {
@@ -38,10 +40,6 @@ function formatDayLabel(iso: string): string {
 
 function isSameDay(a: string, b: string) {
   return new Date(a).toDateString() === new Date(b).toDateString()
-}
-
-function isGroupBreak(a: string, b: string): boolean {
-  return Math.abs(new Date(b).getTime() - new Date(a).getTime()) > 5 * 60 * 1000
 }
 
 function isActiveToday(lastActive: string | null | undefined): boolean {
@@ -64,16 +62,27 @@ export default function ChatPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [other, setOther] = useState<OtherProfile | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set())
+  const [likeAnimating, setLikeAnimating] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showConnection, setShowConnection] = useState(false)
+  const [otherTyping, setOtherTyping] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmBlock, setConfirmBlock] = useState(false)
 
   const currentUserIdRef = useRef<string | null>(null)
   const sentIds = useRef(new Set<string>())
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const wasEmptyRef = useRef(true)
+  const lastTapRef = useRef<Record<string, number>>({})
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const typingChannelRef = useRef<any>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior })
@@ -96,7 +105,7 @@ export default function ChatPage() {
           .single(),
         supabase
           .from('messages')
-          .select('id, from_id, to_id, content, created_at, read_at')
+          .select('id, from_id, to_id, content, created_at, read_at, liked_by')
           .or(
             `and(from_id.eq.${user.id},to_id.eq.${otherUserId}),and(from_id.eq.${otherUserId},to_id.eq.${user.id})`
           )
@@ -108,6 +117,13 @@ export default function ChatPage() {
       const history = (historyRes.data as ChatMessage[]) ?? []
       wasEmptyRef.current = history.length === 0
       setMessages(history)
+
+      // Seed liked set from history
+      const liked = new Set(
+        history.filter(m => (m.liked_by ?? []).includes(user.id)).map(m => m.id)
+      )
+      setLikedMessages(liked)
+
       setLoading(false)
 
       // Mark incoming as read
@@ -126,7 +142,7 @@ export default function ChatPage() {
     if (!loading) scrollToBottom('instant' as ScrollBehavior)
   }, [loading, scrollToBottom])
 
-  // ── Realtime — ONLY for messages from the other person ───────────────────
+  // ── Realtime — INSERT + UPDATE for messages + typing broadcast ────────────
   useEffect(() => {
     if (!currentUserId) return
 
@@ -137,14 +153,9 @@ export default function ChatPage() {
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
           const msg = payload.new as ChatMessage
-          // Use ref to avoid stale closure — currentUserId is stable after init
           const myId = currentUserIdRef.current
           if (!myId) return
-
-          // Only add if from the other person to us — our own sends are
-          // already in state via optimistic update + insert response
           if (msg.from_id !== otherUserId || msg.to_id !== myId) return
-          // Skip if we already have this message (belt-and-suspenders)
           if (sentIds.current.has(msg.id)) return
 
           setMessages(prev => {
@@ -152,7 +163,6 @@ export default function ChatPage() {
             return [...prev, msg]
           })
 
-          // Mark as read immediately
           void supabase
             .from('messages')
             .update({ read_at: new Date().toISOString() })
@@ -161,15 +171,121 @@ export default function ChatPage() {
           scrollToBottom()
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => {
+          // This fires when read_at is set (seen receipt) or liked_by changes
+          const updated = payload.new as ChatMessage
+          const myId = currentUserIdRef.current
+          if (!myId) return
+          const inConv =
+            (updated.from_id === myId && updated.to_id === otherUserId) ||
+            (updated.from_id === otherUserId && updated.to_id === myId)
+          if (!inConv) return
+
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === updated.id
+                ? { ...m, read_at: updated.read_at, liked_by: updated.liked_by ?? [] }
+                : m
+            )
+          )
+
+          // Keep liked set in sync
+          setLikedMessages(prev => {
+            const next = new Set(prev)
+            if ((updated.liked_by ?? []).includes(myId)) next.add(updated.id)
+            else next.delete(updated.id)
+            return next
+          })
+        }
+      )
       .subscribe()
 
-    return () => { void supabase.removeChannel(channel) }
+    const convKey = [currentUserId, otherUserId].sort().join('-')
+    const typingCh = supabase
+      .channel(`typing-${convKey}`)
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if ((payload.payload as { userId?: string })?.userId !== otherUserId) return
+        setOtherTyping(true)
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+        typingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000)
+      })
+      .subscribe()
+
+    typingChannelRef.current = typingCh
+
+    return () => {
+      void supabase.removeChannel(channel)
+      void supabase.removeChannel(typingCh)
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+    }
   }, [currentUserId, otherUserId, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scroll on new messages ────────────────────────────────────────────────
   useEffect(() => {
     if (messages.length > 0 && !loading) scrollToBottom()
   }, [messages.length, loading, scrollToBottom])
+
+  // ── Close menu on outside click ───────────────────────────────────────────
+  useEffect(() => {
+    if (!showMenu) return
+    function handleOutside(e: MouseEvent | TouchEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    document.addEventListener('touchstart', handleOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleOutside)
+      document.removeEventListener('touchstart', handleOutside)
+    }
+  }, [showMenu])
+
+  // ── Double-tap like ───────────────────────────────────────────────────────
+  function handleMessageTap(msgId: string) {
+    if (msgId.startsWith('temp-')) return
+    const now = Date.now()
+    const last = lastTapRef.current[msgId] ?? 0
+    if (now - last < 300) {
+      lastTapRef.current[msgId] = 0
+      void toggleLike(msgId)
+    } else {
+      lastTapRef.current[msgId] = now
+    }
+  }
+
+  async function toggleLike(msgId: string) {
+    if (!currentUserId) return
+    const isLiked = likedMessages.has(msgId)
+
+    setLikedMessages(prev => {
+      const next = new Set(prev)
+      if (isLiked) next.delete(msgId)
+      else next.add(msgId)
+      return next
+    })
+
+    if (!isLiked) {
+      setLikeAnimating(msgId)
+      setTimeout(() => setLikeAnimating(null), 700)
+    }
+
+    const msg = messages.find(m => m.id === msgId)
+    const currentLikes = msg?.liked_by ?? []
+    const newLikes = isLiked
+      ? currentLikes.filter(id => id !== currentUserId)
+      : [...currentLikes, currentUserId]
+
+    // Optimistically update local messages so like icon appears immediately
+    setMessages(prev =>
+      prev.map(m => m.id === msgId ? { ...m, liked_by: newLikes } : m)
+    )
+
+    await supabase.from('messages').update({ liked_by: newLikes }).eq('id', msgId)
+  }
 
   // ── Send ─────────────────────────────────────────────────────────────────
   const handleSend = async () => {
@@ -180,7 +296,6 @@ export default function ChatPage() {
     setInput('')
     const wasEmpty = wasEmptyRef.current
 
-    // Optimistic message
     const tempId = `temp-${Date.now()}`
     const tempMsg: ChatMessage = {
       id: tempId,
@@ -189,6 +304,7 @@ export default function ChatPage() {
       content,
       created_at: new Date().toISOString(),
       read_at: null,
+      liked_by: [],
     }
     setMessages(prev => [...prev, tempMsg])
     scrollToBottom()
@@ -225,6 +341,37 @@ export default function ChatPage() {
     }
   }
 
+  // ── Delete conversation ───────────────────────────────────────────────────
+  async function handleDeleteConversation() {
+    if (!currentUserId) return
+    // Delete messages I sent
+    await supabase
+      .from('messages')
+      .delete()
+      .eq('from_id', currentUserId)
+      .eq('to_id', otherUserId)
+    // Hide the conversation in the inbox (their messages I can't delete via RLS)
+    try { localStorage.setItem(`hidden_conv_${otherUserId}`, '1') } catch { /* ignore */ }
+    router.push('/messages')
+  }
+
+  // ── Block user ────────────────────────────────────────────────────────────
+  function handleBlock() {
+    try { localStorage.setItem(`blocked_${otherUserId}`, '1') } catch { /* ignore */ }
+    toast(`${other?.display_name ?? 'User'} has been blocked`, 'default')
+    router.push('/messages')
+  }
+
+  // ── Report user ───────────────────────────────────────────────────────────
+  function handleReport() {
+    const subject = encodeURIComponent(`Report user: ${otherUserId}`)
+    const body = encodeURIComponent(
+      `I want to report this user:\nUser ID: ${otherUserId}\nName: ${other?.display_name ?? 'Unknown'}\n\nReason:\n`
+    )
+    window.open(`mailto:hello@sondar.app?subject=${subject}&body=${body}`)
+    setShowMenu(false)
+  }
+
   const active = isActiveToday(other?.last_active)
   const initials = (other?.display_name ?? '?')
     .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -233,7 +380,7 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col bg-[#0D0D0D]" style={{ height: '100dvh' }}>
 
-      {/* Connection overlay */}
+      {/* ── Connection overlay ─────────────────────────────────────────── */}
       <AnimatePresence>
         {showConnection && (
           <motion.div
@@ -251,7 +398,9 @@ export default function ChatPage() {
                 className="h-16 w-16 overflow-hidden rounded-full border-2 bg-[#1a1a1a]"
                 style={{ borderColor: 'rgba(255,92,0,0.5)', boxShadow: '0 0 24px rgba(255,92,0,0.3)' }}
               >
-                {other?.avatar_url && <img src={other.avatar_url} alt="" className="h-full w-full object-cover" />}
+                {other?.avatar_url && (
+                  <Image src={other.avatar_url} alt="" width={64} height={64} className="h-full w-full object-cover" />
+                )}
               </motion.div>
               <motion.div
                 initial={{ scale: 0 }}
@@ -289,6 +438,94 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
 
+      {/* ── Confirm delete sheet ────────────────────────────────────────── */}
+      <AnimatePresence>
+        {confirmDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setConfirmDelete(false)}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 60, opacity: 0 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 340 }}
+              className="w-full max-w-lg rounded-t-3xl p-6"
+              style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
+                DELETE CONVERSATION?
+              </p>
+              <p className="mt-2 text-sm text-[rgba(240,239,235,0.5)] leading-relaxed">
+                This removes the conversation from your inbox. The other person can still see their messages.
+              </p>
+              <div className="mt-5 flex flex-col gap-2">
+                <button
+                  onClick={() => { setConfirmDelete(false); void handleDeleteConversation() }}
+                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Confirm block sheet ─────────────────────────────────────────── */}
+      <AnimatePresence>
+        {confirmBlock && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setConfirmBlock(false)}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 60, opacity: 0 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 340 }}
+              className="w-full max-w-lg rounded-t-3xl p-6"
+              style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
+                BLOCK {(other?.display_name ?? 'USER').toUpperCase()}?
+              </p>
+              <p className="mt-2 text-sm text-[rgba(240,239,235,0.5)] leading-relaxed">
+                They won&apos;t be able to message you and you won&apos;t see them in Explore.
+              </p>
+              <div className="mt-5 flex flex-col gap-2">
+                <button
+                  onClick={() => { setConfirmBlock(false); handleBlock() }}
+                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white"
+                >
+                  Block
+                </button>
+                <button
+                  onClick={() => setConfirmBlock(false)}
+                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div
         className="flex-shrink-0 px-4"
@@ -302,6 +539,7 @@ export default function ChatPage() {
         }}
       >
         <div className="mx-auto flex max-w-lg items-center gap-3">
+          {/* Back */}
           <button
             onClick={() => router.push('/messages')}
             className="flex-shrink-0 text-[rgba(240,239,235,0.5)] transition-colors hover:text-[#F0EFEB]"
@@ -311,16 +549,21 @@ export default function ChatPage() {
             ‹
           </button>
 
+          {/* Avatar */}
           <button
             onClick={() => router.push(`/profile/${otherUserId}`)}
             className="flex-shrink-0 relative"
           >
             {other?.avatar_url ? (
-              <img
+              <Image
                 src={other.avatar_url}
                 alt={other.display_name ?? 'User'}
-                style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover',
-                  border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)' }}
+                width={38}
+                height={38}
+                style={{
+                  borderRadius: '50%', objectFit: 'cover',
+                  border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)',
+                }}
               />
             ) : (
               <div
@@ -342,6 +585,7 @@ export default function ChatPage() {
             )}
           </button>
 
+          {/* Name + instrument */}
           <button
             onClick={() => router.push(`/profile/${otherUserId}`)}
             className="min-w-0 flex-1 text-left"
@@ -356,6 +600,89 @@ export default function ChatPage() {
               {active && primaryInstrument ? ' · Active today' : ''}
             </p>
           </button>
+
+          {/* ⋮ menu */}
+          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={() => setShowMenu(v => !v)}
+              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgba(240,239,235,0.45)] transition-colors hover:text-[#F0EFEB]"
+              style={{ background: showMenu ? 'rgba(255,255,255,0.08)' : 'transparent', fontSize: 20 }}
+              aria-label="More options"
+            >
+              ⋮
+            </button>
+
+            <AnimatePresence>
+              {showMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.96 }}
+                  transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                  style={{
+                    position: 'absolute', top: 36, right: 0,
+                    width: 200,
+                    background: 'rgba(22,22,22,0.98)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    borderRadius: 14,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+                    overflow: 'hidden',
+                    zIndex: 100,
+                  }}
+                >
+                  {[
+                    {
+                      label: 'View profile',
+                      icon: '👤',
+                      action: () => { setShowMenu(false); router.push(`/profile/${otherUserId}`) },
+                      danger: false,
+                    },
+                    {
+                      label: 'Delete conversation',
+                      icon: '🗑️',
+                      action: () => { setShowMenu(false); setConfirmDelete(true) },
+                      danger: false,
+                    },
+                    {
+                      label: 'Report user',
+                      icon: '🚩',
+                      action: () => handleReport(),
+                      danger: false,
+                    },
+                    {
+                      label: 'Block user',
+                      icon: '🚫',
+                      action: () => { setShowMenu(false); setConfirmBlock(true) },
+                      danger: true,
+                    },
+                  ].map((item, i, arr) => (
+                    <button
+                      key={item.label}
+                      onClick={item.action}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '11px 14px',
+                        background: 'none',
+                        border: 'none',
+                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontSize: 13,
+                        color: item.danger ? '#ef4444' : 'rgba(240,239,235,0.8)',
+                        WebkitTapHighlightColor: 'transparent',
+                      }}
+                    >
+                      <span style={{ fontSize: 15 }}>{item.icon}</span>
+                      {item.label}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
@@ -380,8 +707,13 @@ export default function ChatPage() {
               {messages.map((msg, i) => {
                 const isMine = msg.from_id === currentUserId
                 const showDay = i === 0 || !isSameDay(messages[i - 1].created_at, msg.created_at)
-                const showTime = i === 0 || showDay || isGroupBreak(messages[i - 1].created_at, msg.created_at)
                 const isTemp = msg.id.startsWith('temp-')
+                const isLiked = likedMessages.has(msg.id) || (msg.liked_by ?? []).length > 0
+                const isAnimating = likeAnimating === msg.id
+
+                // Only show heart if this message was liked by someone
+                const likedByOther = (msg.liked_by ?? []).some(id => id !== currentUserId)
+                const likedByMe = likedMessages.has(msg.id)
 
                 return (
                   <div key={msg.id}>
@@ -395,37 +727,121 @@ export default function ChatPage() {
                       </div>
                     )}
 
-                    {showTime && !showDay && (
-                      <p className="mb-1 mt-4 text-center text-[10px] text-[rgba(240,239,235,0.2)]">
-                        {formatBubbleTime(msg.created_at)}
-                      </p>
-                    )}
-
-                    <motion.div
-                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                      animate={{ opacity: isTemp ? 0.65 : 1, y: 0, scale: 1 }}
-                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
+                    <div
                       className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                      onPointerDown={() => handleMessageTap(msg.id)}
                     >
-                      <div
-                        className="max-w-[75%] px-4 py-2.5"
-                        style={{
-                          background: isMine ? '#FF5500' : 'rgba(255,255,255,0.09)',
-                          backdropFilter: isMine ? 'none' : 'blur(20px)',
-                          WebkitBackdropFilter: isMine ? 'none' : 'blur(20px)',
-                          border: isMine ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                          color: isMine ? '#000' : '#F0EFEB',
-                        }}
-                      >
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                      <div style={{ position: 'relative', maxWidth: '75%' }}>
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                          animate={{ opacity: isTemp ? 0.65 : 1, y: 0, scale: 1 }}
+                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
+                        >
+                          <div
+                            className="px-4 py-2.5"
+                            style={{
+                              background: isMine ? '#FF5500' : 'rgba(255,255,255,0.09)',
+                              backdropFilter: isMine ? 'none' : 'blur(20px)',
+                              WebkitBackdropFilter: isMine ? 'none' : 'blur(20px)',
+                              border: isMine ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                              borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                              color: isMine ? '#000' : '#F0EFEB',
+                            }}
+                          >
+                            <p className="text-sm leading-relaxed">{msg.content}</p>
+                          </div>
+                        </motion.div>
+
+                        {/* Timestamp + seen + like row */}
+                        <div className={`mt-0.5 flex items-center gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
+                          {/* Like shown on received messages (liked by me) */}
+                          {!isMine && likedByMe && (
+                            <span style={{ fontSize: 10 }}>❤️</span>
+                          )}
+
+                          <span className="text-[9px] text-[rgba(240,239,235,0.22)]">
+                            {formatBubbleTime(msg.created_at)}
+                          </span>
+
+                          {/* Seen receipt on sent messages */}
+                          {isMine && !isTemp && (
+                            <span
+                              className="text-[9px] font-medium"
+                              style={{ color: msg.read_at ? '#FF5C00' : 'rgba(240,239,235,0.28)' }}
+                              title={msg.read_at ? 'Seen' : 'Sent'}
+                            >
+                              {msg.read_at ? '✓✓' : '✓'}
+                            </span>
+                          )}
+
+                          {/* Like shown on sent messages (liked by other) */}
+                          {isMine && likedByOther && (
+                            <span style={{ fontSize: 10 }}>❤️</span>
+                          )}
+                        </div>
+
+                        {/* Floating heart animation on double-tap */}
+                        <AnimatePresence>
+                          {isAnimating && (
+                            <motion.span
+                              initial={{ opacity: 1, y: 0, scale: 1 }}
+                              animate={{ opacity: 0, y: -48, scale: 1.8 }}
+                              exit={{}}
+                              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] as const }}
+                              style={{
+                                position: 'absolute',
+                                top: '50%', left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                fontSize: 22, pointerEvents: 'none', zIndex: 10,
+                              }}
+                            >
+                              ❤️
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
                       </div>
-                    </motion.div>
+                    </div>
                   </div>
                 )
               })}
             </AnimatePresence>
           )}
+
+          {/* Typing indicator */}
+          <AnimatePresence>
+            {otherTyping && (
+              <motion.div
+                key="typing"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.2 }}
+                className="mb-2 flex justify-start"
+              >
+                <div
+                  className="px-4 py-3"
+                  style={{
+                    background: 'rgba(255,255,255,0.09)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: '18px 18px 18px 4px',
+                  }}
+                >
+                  <div className="flex items-center gap-1">
+                    {[0, 150, 300].map(delay => (
+                      <span
+                        key={delay}
+                        className="animate-bounce rounded-full bg-[rgba(240,239,235,0.4)]"
+                        style={{ width: 6, height: 6, animationDelay: `${delay}ms` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div ref={bottomRef} />
         </div>
       </div>
@@ -445,7 +861,13 @@ export default function ChatPage() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => {
+              setInput(e.target.value)
+              void typingChannelRef.current?.send({
+                type: 'broadcast', event: 'typing',
+                payload: { userId: currentUserId },
+              })
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Message…"
             rows={1}
@@ -465,7 +887,7 @@ export default function ChatPage() {
             }}
           />
           <motion.button
-            onClick={() => { try { navigator.vibrate?.(10) } catch {} ; void handleSend() }}
+            onClick={() => { try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
             disabled={!input.trim() || sending}
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.92 }}

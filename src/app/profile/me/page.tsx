@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Instrument, Genre, Objective } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
+import { useToast } from '@/components/ui/Toast'
 
 interface ProfileData {
   id: string
@@ -22,6 +23,42 @@ interface ProfileData {
   last_active: string | null
   photo_urls: string[]
   influences: string[] | null
+}
+
+async function fetchArtistThumb(name: string): Promise<string | null> {
+  try {
+    const r = await fetch(
+      `https://www.theaudiodb.com/api/v1/json/2/search.php?s=${encodeURIComponent(name)}`,
+      { signal: AbortSignal.timeout(4000) }
+    )
+    const d = await r.json()
+    return (d?.artists?.[0]?.strArtistThumb as string) ?? null
+  } catch {
+    return null
+  }
+}
+
+function ArtistChip({ name, imageUrl }: { name: string; imageUrl: string | null }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const showImg = imageUrl && !imgFailed
+  return (
+    <span className="flex items-center gap-2 rounded-full px-2 py-1"
+      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>
+      <span style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+        border: showImg ? '1px solid rgba(255,92,0,0.35)' : 'none',
+        background: showImg ? 'transparent' : 'rgba(255,92,0,0.25)',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        {showImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl!} alt={name} onError={() => setImgFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
+        ) : (
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#FF5C00' }}>{name[0]?.toUpperCase()}</span>
+        )}
+      </span>
+      <span style={{ fontSize: 11, color: 'rgba(240,239,235,0.85)', fontWeight: 500 }}>{name}</span>
+    </span>
+  )
 }
 
 const INSTRUMENT_EMOJI: Record<string, string> = {
@@ -79,12 +116,15 @@ const MAX_ADDITIONAL = 6
 export default function MyProfilePage() {
   const router = useRouter()
   const supabase = createClient()
+  const { toast } = useToast()
   const [profile, setProfile] = useState<ProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
   const [photoUrls, setPhotoUrls] = useState<string[]>([])
   const [addingPhoto, setAddingPhoto] = useState(false)
+  const [influenceImages, setInfluenceImages] = useState<Record<string, string | null>>({})
   const addPhotoRef = useRef<HTMLInputElement>(null)
+  const fetchedRef = useRef(false)
 
   useEffect(() => {
     async function load() {
@@ -101,6 +141,17 @@ export default function MyProfilePage() {
       if (data) {
         setProfile(data as ProfileData)
         setPhotoUrls((data as ProfileData).photo_urls ?? [])
+
+        const influences = (data as ProfileData).influences ?? []
+        if (influences.length > 0 && !fetchedRef.current) {
+          fetchedRef.current = true
+          void Promise.all(
+            influences.map(async (artist) => {
+              const url = await fetchArtistThumb(artist)
+              setInfluenceImages(prev => ({ ...prev, [artist]: url }))
+            })
+          )
+        }
       }
       setLoading(false)
     }
@@ -122,7 +173,7 @@ export default function MyProfilePage() {
       setPhotoUrls(next)
       await supabase.from('profiles').update({ photo_urls: next }).eq('id', userId)
     } catch (err) {
-      console.error('Photo upload failed:', err)
+      toast(err instanceof Error ? err.message : 'Photo upload failed', 'error')
     } finally {
       setAddingPhoto(false)
       if (addPhotoRef.current) addPhotoRef.current.value = ''
@@ -192,19 +243,22 @@ export default function MyProfilePage() {
       </div>
 
       {/* Top action bar */}
-      <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-4">
+      <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-5">
         <button onClick={() => router.push('/home')}
-          className="rounded-xl bg-[rgba(13,13,13,0.6)] px-3 py-2 text-sm font-medium text-[rgba(240,239,235,0.6)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]">
-          ← Home
+          className="flex items-center gap-1.5 rounded-full border border-[rgba(240,239,235,0.10)] bg-[rgba(13,13,13,0.65)] px-3 py-2 text-[12px] font-medium text-[rgba(240,239,235,0.55)] backdrop-blur-xl transition-colors hover:border-[rgba(240,239,235,0.2)] hover:text-[#F0EFEB]">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+            <path d="M8 2L4 6l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Home
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <button onClick={() => void shareProfile()}
-            className="rounded-xl border border-[rgba(240,239,235,0.12)] bg-[rgba(13,13,13,0.6)] px-3 py-2 text-xs font-medium text-[rgba(240,239,235,0.55)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]">
+            className="rounded-full border border-[rgba(240,239,235,0.10)] bg-[rgba(13,13,13,0.65)] px-3 py-2 text-[11px] font-medium text-[rgba(240,239,235,0.5)] backdrop-blur-xl transition-colors hover:border-[rgba(240,239,235,0.2)] hover:text-[#F0EFEB]">
             Share
           </button>
           <button onClick={() => router.push('/settings')}
-            className="rounded-xl border border-[rgba(255,92,0,0.35)] bg-[rgba(13,13,13,0.6)] px-3 py-2 text-xs font-medium text-[#FF5500] backdrop-blur-md transition-colors hover:bg-[rgba(255,92,0,0.12)]">
-            Edit
+            className="rounded-full border border-[rgba(255,92,0,0.3)] bg-[rgba(255,92,0,0.08)] px-3 py-2 text-[11px] font-medium text-[#FF5500] backdrop-blur-xl transition-colors hover:bg-[rgba(255,92,0,0.15)]">
+            Edit profile
           </button>
         </div>
       </div>
@@ -324,23 +378,23 @@ export default function MyProfilePage() {
           )}
 
           {/* Stats grid */}
-          <div className="mx-5 mb-3 grid grid-cols-3 gap-1 border-t border-[rgba(240,239,235,0.06)] pt-3">
+          <div className="mx-5 mb-3 grid grid-cols-3 gap-2 border-t border-[rgba(240,239,235,0.06)] pt-3">
             {profile.city && (
-              <div>
-                <p className="text-[6.5px] tracking-[0.18em] text-[rgba(240,239,235,0.28)] uppercase">City</p>
-                <p className="mt-0.5 text-[9px] font-semibold tracking-wide text-[#F0EFEB] uppercase">{profile.city}</p>
+              <div className="rounded-xl bg-[rgba(255,255,255,0.04)] px-2.5 py-2">
+                <p className="text-[7px] tracking-[0.16em] text-[rgba(240,239,235,0.3)] uppercase">City</p>
+                <p className="mt-0.5 text-[9px] font-semibold text-[#F0EFEB] uppercase truncate">{profile.city}</p>
               </div>
             )}
             {profile.objective && (
-              <div>
-                <p className="text-[6.5px] tracking-[0.18em] text-[rgba(240,239,235,0.28)] uppercase">Looking for</p>
-                <p className="mt-0.5 text-[9px] font-semibold tracking-wide text-[#F0EFEB]">{OBJECTIVE_LABEL[profile.objective] ?? profile.objective}</p>
+              <div className="rounded-xl bg-[rgba(255,255,255,0.04)] px-2.5 py-2">
+                <p className="text-[7px] tracking-[0.16em] text-[rgba(240,239,235,0.3)] uppercase">Goal</p>
+                <p className="mt-0.5 text-[9px] font-semibold text-[#F0EFEB] truncate">{OBJECTIVE_LABEL[profile.objective] ?? profile.objective}</p>
               </div>
             )}
             {profile.level && (
-              <div>
-                <p className="text-[6.5px] tracking-[0.18em] text-[rgba(240,239,235,0.28)] uppercase">Level</p>
-                <p className="mt-0.5 text-[9px] font-semibold tracking-wide text-[#F0EFEB]">{LEVEL_LABEL[profile.level] ?? profile.level}</p>
+              <div className="rounded-xl bg-[rgba(255,255,255,0.04)] px-2.5 py-2">
+                <p className="text-[7px] tracking-[0.16em] text-[rgba(240,239,235,0.3)] uppercase">Level</p>
+                <p className="mt-0.5 text-[9px] font-semibold text-[#F0EFEB] truncate">{LEVEL_LABEL[profile.level] ?? profile.level}</p>
               </div>
             )}
           </div>
@@ -355,19 +409,10 @@ export default function MyProfilePage() {
           {/* Influences */}
           {(profile.influences?.length ?? 0) > 0 && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-              <p className="mb-2 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Sounds like</p>
-              <div className="flex flex-wrap gap-1.5">
+              <p className="mb-2.5 text-[7px] tracking-[0.18em] uppercase text-[rgba(240,239,235,0.32)]">Sounds like</p>
+              <div className="flex flex-wrap gap-2">
                 {profile.influences!.map(artist => (
-                  <span key={artist}
-                    className="flex items-center gap-1.5 rounded-full px-2 py-0.5"
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>
-                    <span style={{ width: 14, height: 14, borderRadius: '50%', background: 'rgba(255,92,0,0.3)',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 8, fontWeight: 700, color: '#FF5C00', flexShrink: 0 }}>
-                      {artist[0]?.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: 10, color: 'rgba(240,239,235,0.8)' }}>{artist}</span>
-                  </span>
+                  <ArtistChip key={artist} name={artist} imageUrl={influenceImages[artist] ?? null} />
                 ))}
               </div>
             </div>
@@ -375,7 +420,7 @@ export default function MyProfilePage() {
 
           {/* Photo strip (editable) */}
           <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-            <p className="mb-2 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Photos</p>
+            <p className="mb-2 text-[7px] tracking-[0.18em] uppercase text-[rgba(240,239,235,0.32)]">Photos</p>
             <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
               {photoUrls.map((url, i) => (
                 <div key={url + i} className="relative flex-shrink-0">
@@ -408,7 +453,7 @@ export default function MyProfilePage() {
           {/* Audio */}
           {audioType === 'youtube' && ytEmbed && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-              <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
+              <p className="mb-1.5 text-[7px] tracking-[0.18em] uppercase text-[rgba(240,239,235,0.32)]">Music</p>
               <div className="aspect-video overflow-hidden rounded-xl">
                 <iframe src={ytEmbed} title="YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="h-full w-full border-0" />
               </div>
@@ -416,7 +461,7 @@ export default function MyProfilePage() {
           )}
           {audioType === 'soundcloud' && scEmbed && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
-              <p className="mb-1.5 text-[7px] tracking-[0.2em] uppercase text-[rgba(240,239,235,0.28)]">Music</p>
+              <p className="mb-1.5 text-[7px] tracking-[0.18em] uppercase text-[rgba(240,239,235,0.32)]">Music</p>
               <div className="overflow-hidden rounded-xl">
                 <iframe title="SoundCloud" scrolling="no" allow="autoplay" src={scEmbed} className="h-[100px] w-full border-0" />
               </div>
