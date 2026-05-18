@@ -123,6 +123,8 @@ export default function MyProfilePage() {
   const [photoUrls, setPhotoUrls] = useState<string[]>([])
   const [addingPhoto, setAddingPhoto] = useState(false)
   const [influenceImages, setInfluenceImages] = useState<Record<string, string | null>>({})
+  const [profileViews, setProfileViews] = useState<number | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const addPhotoRef = useRef<HTMLInputElement>(null)
   const fetchedRef = useRef(false)
 
@@ -134,13 +136,14 @@ export default function MyProfilePage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences')
+        .select('id, display_name, avatar_url, bio, instruments, genres, objective, level, city, audio_url, instagram_url, last_active, photo_urls, influences, profile_views')
         .eq('id', user.id)
         .single()
 
       if (data) {
         setProfile(data as ProfileData)
         setPhotoUrls((data as ProfileData).photo_urls ?? [])
+        setProfileViews((data as Record<string, unknown>).profile_views as number | null ?? null)
 
         const influences = (data as ProfileData).influences ?? []
         if (influences.length > 0 && !fetchedRef.current) {
@@ -233,6 +236,31 @@ export default function MyProfilePage() {
 
   return (
     <div className="relative overflow-y-auto" style={{ minHeight: '100dvh', paddingBottom: 100, zIndex: 1, overflowX: 'clip' }}>
+
+      {/* Image lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95"
+          onClick={() => setLightboxUrl(null)}
+          style={{ backdropFilter: 'blur(10px)' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt="Photo"
+            style={{ maxWidth: '95vw', maxHeight: '90dvh', objectFit: 'contain', borderRadius: 12 }}
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-white"
+            style={{ background: 'rgba(255,255,255,0.12)', fontSize: 18 }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Ambient orbs */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none' }}>
@@ -426,8 +454,9 @@ export default function MyProfilePage() {
                 <div key={url + i} className="relative flex-shrink-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={url} alt={`Photo ${i + 1}`}
-                    className="h-[90px] w-[90px] rounded-lg object-cover"
-                    style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
+                    className="h-[90px] w-[90px] rounded-lg object-cover cursor-pointer"
+                    style={{ border: '1px solid rgba(240,239,235,0.08)' }}
+                    onClick={() => setLightboxUrl(url)} />
                   <button onClick={() => void handleDeletePhoto(i)}
                     className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black text-[10px] font-bold text-white"
                     style={{ border: '1px solid rgba(240,239,235,0.3)' }}
@@ -470,7 +499,14 @@ export default function MyProfilePage() {
 
           {/* Card footer */}
           <div className="mx-5 flex items-end justify-between border-t border-[rgba(240,239,235,0.06)] pb-5 pt-3">
-            <p className="text-[7px] tracking-[0.12em] text-[rgba(240,239,235,0.2)]">SDR-{shortId(profile.id)}</p>
+            <div>
+              <p className="text-[7px] tracking-[0.12em] text-[rgba(240,239,235,0.2)]">SDR-{shortId(profile.id)}</p>
+              {(profileViews ?? 0) > 0 && (
+                <p className="mt-0.5 text-[8px] tracking-[0.08em] text-[rgba(240,239,235,0.3)]">
+                  {profileViews!.toLocaleString()} profile view{profileViews !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
               {igUrl && (
                 <a href={igUrl} target="_blank" rel="noopener noreferrer"

@@ -60,6 +60,7 @@ export default function MessagesPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -165,6 +166,32 @@ export default function MessagesPage() {
             ← Home
           </Link>
         </div>
+        {/* Search input */}
+        {conversations.length > 0 && (
+          <div className="mx-auto max-w-lg mt-2">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.25)]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search conversations…"
+                className="w-full rounded-xl py-2 pl-9 pr-4 text-sm text-[#F0EFEB] placeholder:text-[rgba(240,239,235,0.25)] outline-none"
+                style={{ background: 'rgba(240,239,235,0.06)', border: '1px solid rgba(240,239,235,0.08)' }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mx-auto max-w-lg px-4 pt-3 pb-24">
@@ -172,7 +199,7 @@ export default function MessagesPage() {
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
           </div>
-        ) : conversations.length === 0 ? (
+        ) : conversations.length === 0 || (searchQuery && conversations.filter(c => c.partner.display_name?.toLowerCase().includes(searchQuery.toLowerCase())).length === 0) ? (
           <div className="flex flex-col items-center gap-4 py-24 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl"
               style={{ background: 'rgba(255,92,0,0.08)', border: '1px solid rgba(255,92,0,0.15)' }}>
@@ -181,9 +208,11 @@ export default function MessagesPage() {
               </svg>
             </div>
             <div>
-              <p className="text-[rgba(240,239,235,0.55)] font-semibold text-base">No messages yet</p>
+              <p className="text-[rgba(240,239,235,0.55)] font-semibold text-base">
+                {searchQuery ? 'No results' : 'No messages yet'}
+              </p>
               <p className="mt-1 text-[13px] text-[rgba(240,239,235,0.3)]">
-                Find musicians on the map and start a conversation.
+                {searchQuery ? `No conversation with "${searchQuery}"` : 'Find musicians on the map and start a conversation.'}
               </p>
             </div>
             <button
@@ -195,7 +224,7 @@ export default function MessagesPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {conversations.map((convo, i) => {
+            {conversations.filter(c => !searchQuery || c.partner.display_name?.toLowerCase().includes(searchQuery.toLowerCase())).map((convo, i) => {
               const { partner, lastContent, lastAt, lastFromMe, unreadCount } = convo
               const active = isActiveToday(partner.last_active)
               const initials = (partner.display_name ?? '?')

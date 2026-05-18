@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Home, Search, MessageCircle, User, Bell, X } from 'lucide-react'
+import { Home, Search, MessageCircle, User, Bell, X, CalendarDays } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
 
@@ -30,6 +30,7 @@ function formatRelTime(iso: string): string {
 const TABS = [
   { label: 'Home',     href: '/home',        Icon: Home          },
   { label: 'Explore',  href: '/explore',     Icon: Search        },
+  { label: 'Events',   href: '/events',      Icon: CalendarDays  },
   { label: 'Messages', href: '/messages',    Icon: MessageCircle },
   { label: 'Profile',  href: '/profile/me',  Icon: User          },
 ] as const
@@ -174,6 +175,7 @@ export default function BottomNav() {
   function isActive(href: string) {
     if (href === '/messages') return pathname.startsWith('/messages')
     if (href === '/profile/me') return pathname.startsWith('/profile')
+    if (href === '/events') return pathname.startsWith('/events')
     return pathname === href || pathname.startsWith(href + '/')
   }
 

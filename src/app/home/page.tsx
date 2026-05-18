@@ -121,6 +121,7 @@ export default function HomePage() {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
+      if (!user.email_confirmed_at) { router.push('/verify-email'); return }
       setCurrentUserId(user.id)
 
       const { data: prof } = await supabase

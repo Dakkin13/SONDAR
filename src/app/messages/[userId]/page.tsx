@@ -83,10 +83,28 @@ export default function ChatPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typingChannelRef = useRef<any>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior })
   }, [])
+
+  // ── iOS keyboard safe area via visualViewport ─────────────────────────────
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    function onResize() {
+      const offset = Math.max(0, window.innerHeight - vv!.height - vv!.offsetTop)
+      setKeyboardOffset(offset)
+      if (offset > 0) setTimeout(() => scrollToBottom('instant' as ScrollBehavior), 50)
+    }
+    vv.addEventListener('resize', onResize)
+    vv.addEventListener('scroll', onResize)
+    return () => {
+      vv.removeEventListener('resize', onResize)
+      vv.removeEventListener('scroll', onResize)
+    }
+  }, [scrollToBottom])
 
   // ── Load current user + other profile + message history ──────────────────
   useEffect(() => {
@@ -854,7 +872,7 @@ export default function ChatPage() {
           backdropFilter: 'blur(48px) saturate(180%)',
           WebkitBackdropFilter: 'blur(48px) saturate(180%)',
           borderTop: '0.5px solid rgba(255,255,255,0.08)',
-          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         }}
       >
         <div className="mx-auto flex max-w-lg items-end gap-3">

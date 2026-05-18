@@ -205,6 +205,8 @@ export default function SettingsPage() {
   const [addingPhoto, setAddingPhoto]     = useState(false)
   const [showDelete, setShowDelete]       = useState(false)
   const [deleting, setDeleting]           = useState(false)
+  const [blockedIds, setBlockedIds]       = useState<string[]>([])
+  const [blockedProfiles, setBlockedProfiles] = useState<{ id: string; display_name: string | null; avatar_url: string | null }[]>([])
 
   function patch<K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -251,6 +253,25 @@ export default function SettingsPage() {
     }
     void load()
   }, [])
+
+  // ── Load blocked users ────────────────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      const ids: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('blocked_')) ids.push(key.replace('blocked_', ''))
+      }
+      setBlockedIds(ids)
+      if (ids.length > 0) {
+        void supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url')
+          .in('id', ids)
+          .then(({ data }) => setBlockedProfiles(data ?? []))
+      }
+    } catch { /* ignore */ }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Avatar upload ─────────────────────────────────────────────────────────────
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -309,6 +330,14 @@ export default function SettingsPage() {
   function deletePhoto(idx: number) {
     patch('photoUrls', form.photoUrls.filter((_, i) => i !== idx))
     setSaved(false)
+  }
+
+  function movePhoto(from: number, to: number) {
+    if (to < 0 || to >= form.photoUrls.length) return
+    const arr = [...form.photoUrls]
+    const [item] = arr.splice(from, 1)
+    arr.splice(to, 0, item)
+    patch('photoUrls', arr)
   }
 
   // ── Save profile ──────────────────────────────────────────────────────────────
@@ -525,7 +554,7 @@ export default function SettingsPage() {
             <SectionLabel>Additional photos <span className="normal-case font-normal text-[rgba(240,239,235,0.2)]">(up to {MAX_ADDITIONAL})</span></SectionLabel>
             <div className="flex flex-wrap gap-3">
               {form.photoUrls.map((url, i) => (
-                <div key={url + i} className="relative h-20 w-20">
+                <div key={url + i} className="relative h-20 w-20 group">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={url} alt={`Photo ${i + 1}`} className="h-full w-full rounded-xl object-cover" />
                   <button
@@ -536,6 +565,27 @@ export default function SettingsPage() {
                   >
                     ×
                   </button>
+                  {/* Reorder arrows */}
+                  <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => movePhoto(i, i - 1)}
+                      disabled={i === 0}
+                      className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white disabled:opacity-30"
+                      style={{ background: 'rgba(0,0,0,0.7)' }}
+                      aria-label="Move left"
+                    >
+                      ←
+                    </button>
+                    <button
+                      onClick={() => movePhoto(i, i + 1)}
+                      disabled={i === form.photoUrls.length - 1}
+                      className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white disabled:opacity-30"
+                      style={{ background: 'rgba(0,0,0,0.7)' }}
+                      aria-label="Move right"
+                    >
+                      →
+                    </button>
+                  </div>
                 </div>
               ))}
               {form.photoUrls.length < MAX_ADDITIONAL && (
@@ -758,6 +808,38 @@ export default function SettingsPage() {
               ))}
             </div>
           </section>
+
+          {/* ── Blocked users ──────────────────────────────────────────────────── */}
+          {blockedIds.length > 0 && (
+            <section className="space-y-2 border-t border-[rgba(240,239,235,0.06)] pt-4">
+              <SectionLabel>Blocked users</SectionLabel>
+              {blockedProfiles.map(p => {
+                const initials = (p.display_name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+                return (
+                  <div key={p.id} className="flex items-center gap-3 rounded-xl border border-[rgba(240,239,235,0.08)] bg-[#1C1C1C] px-4 py-3">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full" style={{ background: '#2a2a2a', border: '1px solid rgba(240,239,235,0.1)' }}>
+                      {p.avatar_url
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
+                        : <span className="font-[family-name:var(--font-bebas)] text-sm text-[rgba(240,239,235,0.4)]">{initials}</span>
+                      }
+                    </div>
+                    <span className="flex-1 text-sm text-[rgba(240,239,235,0.7)]">{p.display_name ?? 'Unknown'}</span>
+                    <button
+                      onClick={() => {
+                        try { localStorage.removeItem(`blocked_${p.id}`) } catch { /* ignore */ }
+                        setBlockedIds(prev => prev.filter(id => id !== p.id))
+                        setBlockedProfiles(prev => prev.filter(x => x.id !== p.id))
+                      }}
+                      className="rounded-full border border-[rgba(255,92,0,0.25)] px-3 py-1 text-xs font-medium text-[#FF5C00] transition-colors hover:bg-[rgba(255,92,0,0.08)]"
+                    >
+                      Unblock
+                    </button>
+                  </div>
+                )
+              })}
+            </section>
+          )}
 
           {/* ── Account actions ────────────────────────────────────────────────── */}
           <section className="space-y-3 border-t border-[rgba(240,239,235,0.06)] pt-4">

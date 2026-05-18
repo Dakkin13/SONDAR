@@ -60,6 +60,31 @@ function isActiveToday(lastActive: string | null): boolean {
   )
 }
 
+function isNewMusician(createdAt: string | null | undefined): boolean {
+  if (!createdAt) return false
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  return new Date(createdAt) >= sevenDaysAgo
+}
+
+function formatLastSeen(lastActive: string | null): string {
+  if (!lastActive) return 'Offline'
+  const d = new Date(lastActive)
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 5) return 'LIVE'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}d ago`
+  const diffWeeks = Math.floor(diffDays / 7)
+  if (diffWeeks < 5) return `${diffWeeks}w ago`
+  return 'Offline'
+}
+
+const PAGE_SIZE = 12
+
 // ── Skeleton card ──────────────────────────────────────────────────────────────
 function SkeletonCard() {
   return (
@@ -81,8 +106,18 @@ function SkeletonCard() {
 }
 
 // ── Profile card (backstage pass aesthetic) ────────────────────────────────────
-function MusicianProfileCard({ musician: m, index }: { musician: NearbyMusician; index: number }) {
+function MusicianProfileCard({
+  musician: m,
+  index,
+  connectedIds,
+}: {
+  musician: NearbyMusician
+  index: number
+  connectedIds: Set<string>
+}) {
   const active = isActiveToday(m.last_active)
+  const isNew = isNewMusician(m.created_at)
+  const isConnected = connectedIds.has(m.id)
   const primaryInstrument = m.instruments?.[0] ?? ''
 
   // Build ordered photo list: avatar first, then extras
@@ -123,12 +158,35 @@ function MusicianProfileCard({ musician: m, index }: { musician: NearbyMusician;
           boxShadow: active ? '0 0 20px rgba(255,92,0,0.10)' : 'none',
         }}
       >
-        {/* Card header: SONDAR label + live badge */}
+        {/* Card header: SONDAR label + badges */}
         <div className="flex items-start justify-between px-3 pt-3 pb-2">
-          <div>
-            <p className="text-[13px] leading-none tracking-[0.10em] text-[#F0EFEB]"
-              style={{ fontFamily: 'var(--font-bebas)' }}>SONDAR</p>
-            <div className="mt-1 h-px w-8 bg-[#FF5C00]" />
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="text-[13px] leading-none tracking-[0.10em] text-[#F0EFEB]"
+                style={{ fontFamily: 'var(--font-bebas)' }}>SONDAR</p>
+              <div className="mt-1 h-px w-8 bg-[#FF5C00]" />
+            </div>
+            {isNew && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[6px] font-semibold tracking-[0.15em] text-black"
+                style={{ background: '#FF5C00', lineHeight: 1.4 }}
+              >
+                NEW
+              </span>
+            )}
+            {isConnected && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[6px] tracking-[0.12em]"
+                style={{
+                  background: 'rgba(184,255,0,0.12)',
+                  border: '1px solid rgba(184,255,0,0.3)',
+                  color: '#B8FF00',
+                  lineHeight: 1.4,
+                }}
+              >
+                ⚡ CONNECTED
+              </span>
+            )}
           </div>
           {active ? (
             <div className="flex items-center gap-1 rounded-full border border-[#B8FF00] px-2 py-0.5 opacity-90">
@@ -137,9 +195,7 @@ function MusicianProfileCard({ musician: m, index }: { musician: NearbyMusician;
             </div>
           ) : (
             <span className="text-[6.5px] tracking-[0.14em] text-[rgba(240,239,235,0.25)]">
-              {m.last_active
-                ? new Date(m.last_active).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                : 'OFFLINE'}
+              {formatLastSeen(m.last_active)}
             </span>
           )}
         </div>
@@ -332,12 +388,14 @@ function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () 
 export default function ExplorePage() {
   const { toast } = useToast()
   const [musicians, setMusicians] = useState<NearbyMusician[]>([])
+  const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [instrument, setInstrument] = useState('')
   const [objective, setObjective] = useState('')
   const [activeOnly, setActiveOnly] = useState(false)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
 
   const lastFetchLatRef = useRef(DEFAULT_LAT)
   const lastFetchLngRef = useRef(DEFAULT_LNG)
@@ -356,6 +414,7 @@ export default function ExplorePage() {
 
     if (!rpcError && rpcData && rpcData.length > 0) {
       setMusicians(rpcData as NearbyMusician[])
+      setPage(0)
       setLoading(false)
       setRefreshing(false)
       return
@@ -364,10 +423,10 @@ export default function ExplorePage() {
     // Fallback: direct profiles query when RPC fails or returns nothing
     const { data: fallbackData } = await supabase
       .from('profiles')
-      .select('id, display_name, avatar_url, photo_urls, instruments, genres, objective, bio, city, last_active')
+      .select('id, display_name, avatar_url, photo_urls, instruments, genres, objective, bio, city, last_active, created_at')
       .eq('is_onboarded', true)
       .eq('is_archived', false)
-      .limit(30)
+      .limit(60)
 
     if (fallbackData && fallbackData.length > 0) {
       const withCoords = fallbackData.map((p, i) => ({
@@ -377,6 +436,7 @@ export default function ExplorePage() {
         distance_km: i * 0.3,
       }))
       setMusicians(withCoords as NearbyMusician[])
+      setPage(0)
     }
 
     setLoading(false)
@@ -386,8 +446,25 @@ export default function ExplorePage() {
   // ── On mount ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) void supabase.rpc('touch_last_active')
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      void supabase.rpc('touch_last_active')
+
+      // Fetch conversation partners (users this person has exchanged messages with)
+      const [{ data: sent }, { data: received }] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('recipient_id')
+          .eq('sender_id', user.id),
+        supabase
+          .from('messages')
+          .select('sender_id')
+          .eq('recipient_id', user.id),
+      ])
+      const ids = new Set<string>()
+      ;(sent ?? []).forEach((r) => ids.add(r.recipient_id))
+      ;(received ?? []).forEach((r) => ids.add(r.sender_id))
+      setConnectedIds(ids)
     })
 
     // Fetch immediately — don't wait for geolocation
@@ -417,6 +494,11 @@ export default function ExplorePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Reset page when filters change ──────────────────────────────────────────
+  useEffect(() => {
+    setPage(0)
+  }, [instrument, objective, activeOnly, search])
+
   // ── Pull-to-refresh ──────────────────────────────────────────────────────────
   function handleTouchStart(e: React.TouchEvent) {
     pullStartYRef.current = e.touches[0].clientY
@@ -430,7 +512,7 @@ export default function ExplorePage() {
   }
 
   // ── Client-side filtering ────────────────────────────────────────────────────
-  const filtered = musicians.filter((m) => {
+  const allFiltered = musicians.filter((m) => {
     if (instrument && !(m.instruments ?? []).includes(instrument as never)) return false
     if (objective && m.objective !== objective) return false
     if (activeOnly && !isActiveToday(m.last_active)) return false
@@ -443,6 +525,10 @@ export default function ExplorePage() {
     return true
   })
 
+  const visibleCount = (page + 1) * PAGE_SIZE
+  const filtered = allFiltered.slice(0, visibleCount)
+  const canLoadMore = allFiltered.length > visibleCount
+
   const hasFilters = !!(instrument || objective || activeOnly || search.trim())
 
   function clearFilters() {
@@ -450,6 +536,11 @@ export default function ExplorePage() {
     setObjective('')
     setActiveOnly(false)
     setSearch('')
+    setPage(0)
+  }
+
+  function loadMore() {
+    setPage((p) => p + 1)
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -505,7 +596,7 @@ export default function ExplorePage() {
                 Active today
               </button>
               <span className="shrink-0 text-[11px] text-[rgba(240,239,235,0.35)]">
-                {loading ? '…' : `${filtered.length} musician${filtered.length !== 1 ? 's' : ''}`}
+                {loading ? '…' : `${allFiltered.length} musician${allFiltered.length !== 1 ? 's' : ''}`}
               </span>
             </div>
           </div>
@@ -596,14 +687,33 @@ export default function ExplorePage() {
               <SkeletonCard key={i} />
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : allFiltered.length === 0 ? (
           <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((m, i) => (
-              <MusicianProfileCard key={m.id} musician={m} index={i} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((m, i) => (
+                <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} />
+              ))}
+            </div>
+            {canLoadMore && (
+              <div className="mt-6 flex justify-center pb-2">
+                <button
+                  onClick={loadMore}
+                  className="rounded-full border px-6 py-2.5 text-[11px] font-medium tracking-[0.10em] transition-all duration-150"
+                  style={{
+                    borderColor: 'rgba(255,92,0,0.35)',
+                    background: 'rgba(255,92,0,0.07)',
+                    color: '#FF5C00',
+                    fontFamily: 'var(--font-bebas)',
+                    fontSize: 13,
+                  }}
+                >
+                  LOAD MORE
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -612,7 +722,7 @@ export default function ExplorePage() {
         <div className="fixed bottom-[72px] right-3 z-50 rounded-lg bg-black/80 px-3 py-2 font-mono text-[10px] text-[rgba(240,239,235,0.7)] backdrop-blur-sm">
           <p>lat {lastFetchLatRef.current.toFixed(4)} lng {lastFetchLngRef.current.toFixed(4)}</p>
           <p className={musicians.length > 0 ? 'text-[#B8FF00]' : 'text-[#FF5500]'}>
-            {musicians.length} loaded · {filtered.length} shown
+            {musicians.length} loaded · {allFiltered.length} matched · {filtered.length} shown
           </p>
         </div>
       )}

@@ -140,6 +140,9 @@ export default function ProfilePage() {
   const [distanceKm, setDistanceKm] = useState<number | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [influenceImages, setInfluenceImages] = useState<Record<string, string | null>>({})
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [waved, setWaved] = useState(false)
+  const [waving, setWaving] = useState(false)
   const fetchedRef = useRef(false)
 
   useEffect(() => {
@@ -156,6 +159,8 @@ export default function ProfilePage() {
       if (error || !data) { setNotFound(true) }
       else {
         setProfile(data as ProfileData)
+        // Check if already waved
+        try { setWaved(localStorage.getItem(`waved_${id}`) === '1') } catch { /* ignore */ }
 
         // Fetch artist thumbnails for influences in the background
         const influences = (data as ProfileData).influences ?? []
@@ -227,6 +232,21 @@ export default function ProfilePage() {
   const isNew        = isNewProfile(profile.created_at)
   const isOwnProfile = currentUserId === profile.id
 
+  async function handleWave() {
+    if (waved || waving || !currentUserId) return
+    setWaving(true)
+    try {
+      await supabase.from('waves').upsert(
+        { from_id: currentUserId, to_id: profile!.id },
+        { onConflict: 'from_id,to_id' }
+      )
+    } catch { /* waves table may not exist yet */ }
+    try { localStorage.setItem(`waved_${profile!.id}`, '1') } catch { /* ignore */ }
+    setWaved(true)
+    setWaving(false)
+    toast('Wave sent!', 'default')
+  }
+
   function handleShare() {
     const url = `${window.location.origin}/profile/${profile!.id}`
     if (navigator.share) {
@@ -244,6 +264,31 @@ export default function ProfilePage() {
 
   return (
     <div className="relative overflow-y-auto" style={{ minHeight: '100dvh', paddingBottom: 90, zIndex: 1, overflowX: 'clip' }}>
+
+      {/* Image lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95"
+          onClick={() => setLightboxUrl(null)}
+          style={{ backdropFilter: 'blur(10px)' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt="Photo"
+            style={{ maxWidth: '95vw', maxHeight: '90dvh', objectFit: 'contain', borderRadius: 12 }}
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-white"
+            style={{ background: 'rgba(255,255,255,0.12)', fontSize: 18 }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Ambient orbs */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none' }}>
@@ -433,10 +478,17 @@ export default function ProfilePage() {
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
                 {profile.photo_urls.map((url, i) => (
-                  <Image key={url + i} src={url} alt={`Photo ${i + 1}`}
-                    width={90} height={90}
-                    className="flex-shrink-0 rounded-lg object-cover"
-                    style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
+                  <button
+                    key={url + i}
+                    onClick={() => setLightboxUrl(url)}
+                    className="flex-shrink-0"
+                    aria-label={`View photo ${i + 1}`}
+                  >
+                    <Image src={url} alt={`Photo ${i + 1}`}
+                      width={90} height={90}
+                      className="rounded-lg object-cover"
+                      style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
+                  </button>
                 ))}
               </div>
             </div>
@@ -512,14 +564,30 @@ export default function ProfilePage() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-4"
+          className="mt-4 flex flex-col gap-2"
         >
-          <button
-            onClick={() => router.push(`/messages/${id}`)}
-            className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
-          >
-            Send message
-          </button>
+          {!isOwnProfile && (
+            <button
+              onClick={() => router.push(`/messages/${id}`)}
+              className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
+            >
+              Send message
+            </button>
+          )}
+          {!isOwnProfile && (
+            <button
+              onClick={() => void handleWave()}
+              disabled={waved || waving}
+              className="w-full rounded-full py-3 text-sm font-semibold transition-all"
+              style={{
+                background: waved ? 'rgba(255,92,0,0.08)' : 'rgba(255,255,255,0.06)',
+                border: waved ? '1px solid rgba(255,92,0,0.3)' : '1px solid rgba(255,255,255,0.12)',
+                color: waved ? '#FF5C00' : 'rgba(240,239,235,0.7)',
+              }}
+            >
+              {waving ? 'Sending…' : waved ? '👋 Waved!' : '👋 Wave'}
+            </button>
+          )}
         </motion.div>
       </motion.div>
 
