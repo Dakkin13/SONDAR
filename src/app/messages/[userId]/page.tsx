@@ -725,8 +725,9 @@ export default function ChatPage() {
           {/* Back */}
           <button
             onClick={() => router.push('/messages')}
+            onTouchEnd={(e) => { e.preventDefault(); router.push('/messages') }}
             className="flex-shrink-0 text-[rgba(240,239,235,0.5)] transition-colors hover:text-[#F0EFEB]"
-            style={{ fontSize: 22, lineHeight: 1 }}
+            style={{ fontSize: 22, lineHeight: 1, padding: '8px 12px 8px 4px', touchAction: 'manipulation' }}
             aria-label="Back"
           >
             ‹
@@ -788,8 +789,9 @@ export default function ChatPage() {
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
               onClick={() => setShowMenu(v => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-[rgba(240,239,235,0.45)] transition-colors hover:text-[#F0EFEB]"
-              style={{ background: showMenu ? 'rgba(255,255,255,0.08)' : 'transparent', fontSize: 20 }}
+              onTouchEnd={(e) => { e.preventDefault(); setShowMenu(v => !v) }}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-[rgba(240,239,235,0.45)] transition-colors hover:text-[#F0EFEB]"
+              style={{ background: showMenu ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)', fontSize: 20, touchAction: 'manipulation' }}
               aria-label="More options"
             >
               ⋮
@@ -877,13 +879,49 @@ export default function ChatPage() {
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
             </div>
           ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-24 text-center">
-              <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[rgba(240,239,235,0.2)]">
-                START THE CONVERSATION
-              </p>
-              <p className="text-xs text-[rgba(240,239,235,0.3)]">
-                Send a message to {other?.display_name ?? 'this musician'}.
-              </p>
+            <div className="flex flex-col items-center gap-4 py-16 text-center">
+              {/* Avatar */}
+              <div
+                style={{
+                  width: 72, height: 72, borderRadius: '50%', overflow: 'hidden',
+                  border: '2px solid rgba(255,92,0,0.35)',
+                  background: '#1a1a1a',
+                  boxShadow: '0 0 32px rgba(255,92,0,0.12)',
+                }}
+              >
+                {other?.avatar_url ? (
+                  <img src={other.avatar_url} alt={other.display_name ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 24, color: 'rgba(255,92,0,0.8)' }}>
+                      {(other?.display_name ?? '?')[0]?.toUpperCase()}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
+                  {(other?.display_name ?? 'MUSICIAN').toUpperCase()}
+                </p>
+                {primaryInstrument && (
+                  <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.35)]">
+                    {INSTRUMENT_EMOJI[primaryInstrument] ?? '🎵'} {primaryInstrument} · {active ? 'Active today' : 'Offline'}
+                  </p>
+                )}
+              </div>
+              <div
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 14,
+                  padding: '12px 20px',
+                  maxWidth: 280,
+                }}
+              >
+                <p className="text-xs leading-relaxed text-[rgba(240,239,235,0.4)]">
+                  Say hi and tell them what you&apos;re working on 🎵
+                </p>
+              </div>
             </div>
           ) : (
             <AnimatePresence initial={false}>
@@ -912,7 +950,7 @@ export default function ChatPage() {
 
                     <div
                       className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                      onPointerDown={() => handleMessageTap(msg.id)}
+                      onClick={() => handleMessageTap(msg.id)}
                     >
                       <div style={{ position: 'relative', maxWidth: '75%' }}>
                         <motion.div
@@ -1071,6 +1109,7 @@ export default function ChatPage() {
           />
           <motion.button
             onClick={() => { try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
+            onTouchEnd={(e) => { e.preventDefault(); try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
             disabled={!input.trim() || sending}
             whileHover={{ scale: 1.06 }}
             whileTap={{ scale: 0.92 }}

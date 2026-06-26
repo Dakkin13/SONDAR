@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { NearbyMusician } from '@/types'
@@ -112,12 +113,14 @@ function MusicianProfileCard({
   connectedIds,
   currentUserId,
   userInstruments,
+  onMessage,
 }: {
   musician: NearbyMusician
   index: number
   connectedIds: Set<string>
   currentUserId: string | null
   userInstruments: string[]
+  onMessage: (id: string) => void
 }) {
   const active = isActiveToday(m.last_active)
   const isNew = isNewMusician(m.created_at)
@@ -154,15 +157,16 @@ function MusicianProfileCard({
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.32, delay: Math.min(index * 0.06, 0.5), ease: [0.25, 0.46, 0.45, 0.94] }}
+      className="overflow-hidden rounded-2xl"
+      style={{
+        background: 'rgba(10,10,10,0.92)',
+        border: '1px solid rgba(240,239,235,0.08)',
+        boxShadow: active ? '0 0 20px rgba(255,92,0,0.10)' : 'none',
+      }}
     >
       <Link
         href={`/profile/${m.id}`}
-        className="block overflow-hidden rounded-2xl transition-transform duration-200 hover:scale-[1.012]"
-        style={{
-          background: 'rgba(10,10,10,0.92)',
-          border: '1px solid rgba(240,239,235,0.08)',
-          boxShadow: active ? '0 0 20px rgba(255,92,0,0.10)' : 'none',
-        }}
+        className="block transition-transform duration-200 hover:scale-[1.012]"
       >
         {/* Card header: SONDAR label + badges */}
         <div className="flex items-start justify-between px-3 pt-3 pb-2">
@@ -391,6 +395,36 @@ function MusicianProfileCard({
           )}
         </div>
       </Link>
+
+      {/* Message CTA — only show for other users, not own card */}
+      {!isOwnCard && currentUserId && (
+        <div className="px-3 pb-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); onMessage(m.id) }}
+            onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); onMessage(m.id) }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[11px] font-semibold tracking-[0.08em] transition-all duration-150"
+            style={
+              isConnected
+                ? {
+                    background: 'rgba(255,92,0,0.18)',
+                    border: '1px solid rgba(255,92,0,0.45)',
+                    color: '#FF5C00',
+                  }
+                : {
+                    background: '#FF5C00',
+                    border: '1px solid rgba(255,92,0,0.6)',
+                    color: '#000',
+                    boxShadow: '0 0 14px rgba(255,92,0,0.25)',
+                  }
+            }
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            {isConnected ? 'CONTINUE CHAT' : 'SEND MESSAGE'}
+          </button>
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -433,6 +467,7 @@ function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () 
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function ExplorePage() {
   const { toast } = useToast()
+  const router = useRouter()
   const [musicians, setMusicians] = useState<NearbyMusician[]>([])
   const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set())
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
@@ -518,16 +553,16 @@ export default function ExplorePage() {
       const [{ data: sent }, { data: received }] = await Promise.all([
         supabase
           .from('messages')
-          .select('recipient_id')
-          .eq('sender_id', user.id),
+          .select('to_id')
+          .eq('from_id', user.id),
         supabase
           .from('messages')
-          .select('sender_id')
-          .eq('recipient_id', user.id),
+          .select('from_id')
+          .eq('to_id', user.id),
       ])
       const ids = new Set<string>()
-      ;(sent ?? []).forEach((r) => ids.add(r.recipient_id))
-      ;(received ?? []).forEach((r) => ids.add(r.sender_id))
+      ;(sent ?? []).forEach((r) => ids.add(r.to_id))
+      ;(received ?? []).forEach((r) => ids.add(r.from_id))
       setConnectedIds(ids)
     })
 
@@ -757,7 +792,7 @@ export default function ExplorePage() {
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((m, i) => (
-                <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} currentUserId={currentUserId} userInstruments={userInstruments} />
+                <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} currentUserId={currentUserId} userInstruments={userInstruments} onMessage={(id) => router.push(`/messages/${id}`)} />
               ))}
             </div>
             {canLoadMore && (
