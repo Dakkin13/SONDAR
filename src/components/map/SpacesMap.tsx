@@ -65,7 +65,12 @@ function createSpaceMarker(space: SpacePin): HTMLElement {
 export default function SpacesMap({ spaces, centerCity, onSpaceClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const markersRef = useRef<mapboxgl.Marker[]>([])
+  // Keep a ref to onSpaceClick so the marker effect doesn't need it as a dep
+  const onSpaceClickRef = useRef(onSpaceClick)
+  onSpaceClickRef.current = onSpaceClick
 
+  // ── Create map once ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
@@ -85,7 +90,24 @@ export default function SpacesMap({ spaces, centerCity, onSpaceClick }: Props) {
     })
     mapRef.current = map
 
-    map.on('load', () => {
+    return () => {
+      markersRef.current.forEach(m => m.remove())
+      markersRef.current = []
+      map.remove()
+      mapRef.current = null
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Render markers whenever spaces changes ───────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    function renderMarkers() {
+      markersRef.current.forEach(m => m.remove())
+      markersRef.current = []
+
       spaces.forEach(space => {
         const el = createSpaceMarker(space)
 
@@ -102,26 +124,26 @@ export default function SpacesMap({ spaces, centerCity, onSpaceClick }: Props) {
           </div>
         `)
 
-        el.addEventListener('mouseenter', () => popup.addTo(map))
+        el.addEventListener('mouseenter', () => popup.addTo(map!))
         el.addEventListener('mouseleave', () => popup.remove())
-        if (onSpaceClick) {
-          el.addEventListener('click', () => onSpaceClick(space))
-        }
+        el.addEventListener('click', () => onSpaceClickRef.current?.(space))
 
-        new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
           .setLngLat([space.lng, space.lat])
-          .addTo(map)
+          .addTo(map!)
+
+        markersRef.current.push(marker)
       })
-    })
-
-    return () => {
-      map.remove()
-      mapRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // Re-fly when city filter changes
+    if (map.loaded()) {
+      renderMarkers()
+    } else {
+      map.once('load', renderMarkers)
+    }
+  }, [spaces])
+
+  // ── Re-fly when city filter changes ─────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -136,7 +158,6 @@ export default function SpacesMap({ spaces, centerCity, onSpaceClick }: Props) {
   return (
     <div className="relative overflow-hidden rounded-2xl" style={{ height: 280 }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {/* Vignette edge fade */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 rounded-2xl"

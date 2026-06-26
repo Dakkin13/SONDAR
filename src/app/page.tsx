@@ -85,8 +85,6 @@ function ProximityModuleIcon() {
         )
       )}
       <text x="10" y="17" fill="rgba(240,239,235,0.28)" fontSize="6.5" fontFamily="monospace">48.861° N · 2.349° E</text>
-      <circle cx="141" cy="13" r="3" fill="#B8FF00" />
-      <text x="146" y="17" fill="rgba(184,255,0,0.6)" fontSize="6.5" fontFamily="monospace">LIVE</text>
       <text x="10" y="130" fill="rgba(240,239,235,0.22)" fontSize="6" fontFamily="monospace">ACTIVE · 4 · NEARBY · 12 · RADIUS · 2.4KM</text>
       <path d="M10 22L10 10L22 10" stroke="rgba(240,239,235,0.2)" strokeWidth="0.8" />
       <path d="M150 22L150 10L138 10" stroke="rgba(240,239,235,0.2)" strokeWidth="0.8" />
@@ -118,8 +116,6 @@ function ResonanceModuleIcon() {
           fill={`rgba(255,92,0,${b.op})`} />
       ))}
       <text x="10" y="17" fill="rgba(240,239,235,0.28)" fontSize="6.5" fontFamily="monospace">SIGNAL</text>
-      <circle cx="132" cy="13" r="3" fill="#FF5C00" />
-      <text x="137" y="17" fill="rgba(255,92,0,0.7)" fontSize="6.5" fontFamily="monospace">LOCKED</text>
       <path d="M10 22L10 10L22 10" stroke="rgba(240,239,235,0.2)" strokeWidth="0.8" />
       <path d="M150 22L150 10L138 10" stroke="rgba(240,239,235,0.2)" strokeWidth="0.8" />
       <defs>
@@ -201,8 +197,8 @@ function ProfileShowcaseCard() {
       </div>
       <div className="px-4 pt-3 pb-4">
         <h3 className="text-[24px] leading-none tracking-[0.04em] text-[#F0EFEB]"
-          style={{ fontFamily: 'var(--font-bebas)' }}>MILA OKONKWO</h3>
-        <p className="mb-3 mt-0.5 text-[8px] text-[rgba(240,239,235,0.38)]">@mila.makes.noise · est. &apos;22</p>
+          style={{ fontFamily: 'var(--font-bebas)' }}>MICHAEL JACKSON</h3>
+        <p className="mb-3 mt-0.5 text-[8px] text-[rgba(240,239,235,0.38)]">@mj.makes.noise · est. &apos;22</p>
         <div className="mb-4 flex flex-wrap gap-1.5">
           {CARD_TAGS.map(t => (
             <span key={t.label}
@@ -301,7 +297,7 @@ const HOW_IT_WORKS = [
   {
     num: '02', tag: 'PROXIMITY',
     title: 'Find musicians near you',
-    body: 'Drop the pin. See who\'s within walking distance. Filter by instrument, genre, or availability. No algorithm — just proximity.',
+    body: 'Drop the pin. See who\'s within walking distance. Filter by instrument, genre, or availability. No algorithm , just proximity.',
     Icon: ProximityModuleIcon,
   },
   {
@@ -341,6 +337,8 @@ const stagger = (delay = 0.12) => ({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const CTA_HREF = process.env.NEXT_PUBLIC_WAITLIST_MODE === 'true' ? '/waitlist' : '/login'
+
 export default function LandingPage() {
   const howRef = useRef<HTMLElement>(null)
 
@@ -364,7 +362,7 @@ export default function LandingPage() {
     <>
       <MarketingNav />
 
-      {/* ── Fixed ambient orbs — follow user through the whole page ───────── */}
+      {/* ── Fixed ambient orbs , follow user through the whole page ───────── */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
         <div style={{
           position: 'absolute', right: '-5%', top: '-5%',
@@ -426,11 +424,11 @@ export default function LandingPage() {
 
             {/* CTAs */}
             <motion.div variants={fadeUp} className="flex flex-col items-center gap-3 sm:flex-row">
-              <Link href="/login"
+              <Link href={CTA_HREF}
                 className="flex items-center justify-center rounded-full bg-[#FF5500] px-8 py-3.5 text-base font-semibold text-black shadow-[0_0_40px_rgba(255,85,0,0.5)] transition-opacity hover:opacity-90">
-                Get started — it&apos;s free
+                Get started , it&apos;s free
               </Link>
-              {/* Plain <a> link — no JS needed, works on all iOS versions */}
+              {/* Plain <a> link , no JS needed, works on all iOS versions */}
               <a
                 href="#how-it-works"
                 className="flex items-center justify-center rounded-full border border-[rgba(240,239,235,0.15)] bg-[rgba(240,239,235,0.05)] px-8 py-3.5 text-base font-medium text-[rgba(240,239,235,0.75)] backdrop-blur-sm transition-colors hover:border-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
@@ -439,16 +437,18 @@ export default function LandingPage() {
               </a>
             </motion.div>
 
-            {/* Scroll indicator — in normal flow so always visible on mobile too */}
-            <motion.div variants={fadeUp} className="flex flex-col items-center gap-2 pt-4 pointer-events-none">
-              <motion.div
+            {/* Scroll indicator , in normal flow so always visible on mobile too */}
+            <motion.div variants={fadeUp} className="flex flex-col items-center gap-2 pt-4">
+              <motion.button
+                onClick={scrollToHow}
                 animate={{ y: [0, 10, 0] }}
                 transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-                className="flex flex-col items-center gap-2"
+                className="flex flex-col items-center gap-2 cursor-pointer"
+                aria-label="Scroll to how it works"
               >
                 <div className="h-10 w-px bg-gradient-to-b from-transparent to-[rgba(240,239,235,0.45)]" />
                 <div className="h-2 w-2 rotate-45 border-b-2 border-r-2 border-[rgba(240,239,235,0.55)]" />
-              </motion.div>
+              </motion.button>
             </motion.div>
 
           </motion.div>
@@ -478,9 +478,9 @@ export default function LandingPage() {
                   <div className="flex items-center justify-between text-[9px] tracking-[0.22em] text-[rgba(240,239,235,0.28)]">
                     <span>{item.num} / {item.tag}</span>
                     <div className="flex gap-1">
-                      <span className="h-1 w-1 rounded-full bg-[#FF5C00]" />
-                      <span className="h-1 w-1 rounded-full bg-[rgba(240,239,235,0.18)]" />
-                      <span className="h-1 w-1 rounded-full bg-[rgba(240,239,235,0.18)]" />
+                      {[0, 1, 2].map(dot => (
+                        <span key={dot} className={`h-1 w-1 rounded-full ${dot === i ? 'bg-[#FF5C00]' : 'bg-[rgba(240,239,235,0.18)]'}`} />
+                      ))}
                     </div>
                   </div>
                   <div className="flex justify-center py-1"><item.Icon /></div>
@@ -505,14 +505,14 @@ export default function LandingPage() {
           </p>
           <p className="mb-10 text-center leading-none tracking-[0.04em] text-[#F0EFEB]"
             style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(32px, 6vw, 56px)' }}>
-            Not a profile. A backstage pass.
+            YOUR SOUND HAS A FACE.
           </p>
           <motion.div initial={{ opacity: 1, scale: 0.95, y: 20 }} whileInView={{ opacity: 1, scale: 1, y: 0 }}
             viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] as const }}>
             <ProfileShowcaseCard />
           </motion.div>
           <p className="mt-6 text-center text-xs text-[rgba(240,239,235,0.3)]">
-            Your instruments, your vibe, your city — all in one card.
+            Your instruments, your vibe, your city , all in one card.
           </p>
         </section>
 
@@ -531,7 +531,7 @@ export default function LandingPage() {
                 <p className="text-base leading-relaxed text-[rgba(240,239,235,0.55)]">
                   Every city is full of musicians who can&apos;t find each other. Guitarists
                   looking for drummers. Producers looking for vocalists. Bands looking for
-                  a bassist. The tools to connect them have been broken for years — outdated
+                  a bassist. The tools to connect them have been broken for years , outdated
                   apps, dead Facebook groups, random luck.
                 </p>
                 <p className="mt-4 text-base leading-relaxed text-[rgba(240,239,235,0.55)]">
@@ -565,7 +565,7 @@ export default function LandingPage() {
             </p>
             <h2 className="mb-10 leading-none tracking-[0.04em] text-[#F0EFEB]"
               style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(36px, 7vw, 64px)' }}>
-              Every music city in Europe
+              Somewhere in your city,<br />your band already exists.
             </h2>
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-10 items-start">
@@ -576,28 +576,12 @@ export default function LandingPage() {
                 <EuropeMap />
               </motion.div>
 
-              {/* City list */}
+              {/* Text */}
               <motion.div initial={{ opacity: 1, x: 16 }} whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
                 className="glass p-6">
-                <p className="mb-4 text-[9px] tracking-[0.22em] text-[rgba(240,239,235,0.3)] uppercase">Active in</p>
-                <div className="flex flex-wrap gap-2">
-                  {CITIES.map((city) => (
-                    <span key={city}
-                      className="rounded-full border px-3 py-1 text-xs tracking-wide"
-                      style={{
-                        borderColor: 'rgba(240,239,235,0.12)',
-                        color: 'rgba(240,239,235,0.55)',
-                      }}>
-                      {city}
-                    </span>
-                  ))}
-                  <span className="rounded-full border border-dashed border-[rgba(240,239,235,0.12)] px-3 py-1 text-xs text-[rgba(240,239,235,0.3)]">
-                    + more
-                  </span>
-                </div>
-                <p className="mt-5 text-xs text-[rgba(240,239,235,0.35)]">
-                  Wherever you are, your next bandmate is already on Sondar.
+                <p className="text-sm leading-relaxed text-[rgba(240,239,235,0.55)]">
+                  Most musicians find their people by accident. A friend of a friend, someone they met at a gig, a random encounter in a rehearsal space. It works, eventually, but it takes years, and a lot of luck. Sondar exists because that process is broken, and everyone knows it but nobody talks about it. We&apos;re building this one city at a time, with the musicians who are already there waiting.
                 </p>
               </motion.div>
             </div>
@@ -625,9 +609,9 @@ export default function LandingPage() {
               style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(48px, 10vw, 96px)', textShadow: '0 0 80px rgba(255,92,0,0.35)' }}>
               Ready to find<br />your people?
             </h2>
-            <Link href="/login"
+            <Link href={CTA_HREF}
               className="flex items-center justify-center rounded-full bg-[#FF5500] px-10 py-4 text-lg font-semibold text-black shadow-[0_0_40px_rgba(255,85,0,0.5)] transition-opacity hover:opacity-90">
-              Join Sondar — it&apos;s free
+              Join Sondar , it&apos;s free
             </Link>
             <p className="text-[11px] font-medium tracking-[0.22em] uppercase text-[rgba(240,239,235,0.2)]">
               Free · No algorithm · Just music
@@ -646,7 +630,7 @@ export default function LandingPage() {
               <Link href="/privacy" className="hover:text-[rgba(240,239,235,0.6)] transition-colors">Privacy Policy</Link>
             </div>
             <div className="flex items-center gap-4">
-              <a href="https://www.tiktok.com/@sondar_app?_r=1&_t=ZN-96PSe9Lbswg" target="_blank" rel="noopener noreferrer"
+              <a href="https://www.tiktok.com/@sondarhq" target="_blank" rel="noopener noreferrer"
                 className="flex flex-col items-center gap-1 transition-opacity hover:opacity-70"
                 style={{ color: 'rgba(240,239,235,0.3)' }}>
                 <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 22, height: 22 }}>
@@ -665,7 +649,7 @@ export default function LandingPage() {
             </div>
           </div>
           <p className="mt-4 text-center text-[10px] text-[rgba(240,239,235,0.15)] tracking-[0.1em]">
-            Follow us — coming soon · © 2026 Sondar
+            Follow us , coming soon · © 2026 Sondar
           </p>
         </footer>
 

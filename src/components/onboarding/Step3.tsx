@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import CityAutocomplete from './CityAutocomplete'
@@ -13,6 +13,7 @@ interface Step3Props {
   instagramUrl: string
   avatarUrl: string | null
   photoUrls: string[]
+  influences: string[]
   onDisplayNameChange: (v: string) => void
   onCityChange: (v: string) => void
   onCitySelect: (name: string, lat: number, lng: number) => void
@@ -21,6 +22,7 @@ interface Step3Props {
   onInstagramUrlChange: (v: string) => void
   onAvatarUrlChange: (url: string) => void
   onPhotoUrlsChange: (urls: string[]) => void
+  onInfluencesChange: (v: string[]) => void
 }
 
 const MAX_ADDITIONAL = 3
@@ -34,6 +36,7 @@ export default function Step3({
   instagramUrl,
   avatarUrl,
   photoUrls,
+  influences,
   onDisplayNameChange,
   onCityChange,
   onCitySelect,
@@ -42,6 +45,7 @@ export default function Step3({
   onInstagramUrlChange,
   onAvatarUrlChange,
   onPhotoUrlsChange,
+  onInfluencesChange,
 }: Step3Props) {
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef  = useRef<HTMLInputElement>(null)
@@ -49,8 +53,17 @@ export default function Step3({
   const [uploadingSlot, setUploadingSlot]   = useState<number | null>(null)
   const [uploadError, setUploadError]       = useState<string | null>(null)
   const [localPreview, setLocalPreview]     = useState<string | null>(null)
+  const [influenceInput, setInfluenceInput] = useState('')
   const pendingSlotRef = useRef<number | null>(null)
   const supabase = createClient()
+
+  const addInfluence = useCallback((name: string) => {
+    const trimmed = name.trim().replace(/,$/, '')
+    if (trimmed && !influences.includes(trimmed) && influences.length < 10) {
+      onInfluencesChange([...influences, trimmed])
+    }
+    setInfluenceInput('')
+  }, [influences, onInfluencesChange])
 
   async function getUser() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -280,6 +293,59 @@ export default function Step3({
             <InstagramIcon />
           </span>
         </div>
+      </div>
+
+      {/* Artists I like */}
+      <div>
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
+          Artists I like{' '}
+          <span className="normal-case font-normal text-[rgba(240,239,235,0.2)]">(optional · up to 10)</span>
+        </p>
+        {influences.length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-2">
+            {influences.map(artist => (
+              <span
+                key={artist}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+                style={{ background: 'rgba(255,85,0,0.10)', border: '1px solid rgba(255,85,0,0.22)', color: 'rgba(240,239,235,0.85)' }}
+              >
+                {artist}
+                <button
+                  onClick={() => onInfluencesChange(influences.filter(a => a !== artist))}
+                  className="text-[rgba(240,239,235,0.4)] hover:text-[#FF5500]"
+                  aria-label={`Remove ${artist}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {influences.length < 10 && (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={influenceInput}
+              onChange={e => setInfluenceInput(e.target.value)}
+              onKeyDown={e => {
+                if ((e.key === 'Enter' || e.key === ',') && influenceInput.trim()) {
+                  e.preventDefault()
+                  addInfluence(influenceInput)
+                }
+              }}
+              placeholder="e.g. Radiohead, Portishead…"
+              className={cn(inputClass, 'flex-1')}
+            />
+            <button
+              onClick={() => addInfluence(influenceInput)}
+              disabled={!influenceInput.trim()}
+              className="rounded-xl border border-[rgba(255,85,0,0.3)] bg-[rgba(255,85,0,0.08)] px-4 py-3 text-sm font-semibold text-[#FF5500] disabled:opacity-30"
+            >
+              Add
+            </button>
+          </div>
+        )}
+        <p className="mt-1.5 text-xs text-[rgba(240,239,235,0.2)]">Press Enter or comma to add</p>
       </div>
     </div>
   )

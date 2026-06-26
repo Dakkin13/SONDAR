@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -19,80 +19,119 @@ interface SpaceDetail {
   hours: string
   capacity: string
   tags: string[]
+  website: string | null
 }
 
 const SPACES: SpaceDetail[] = [
+  // ── Madrid ──────────────────────────────────────────────────────────────────
   {
-    name: 'Rockschool Madrid',
-    neighborhood: 'Malasaña',
+    name: "Pandora's Vox",
+    neighborhood: 'Arganzuela',
     city: 'Madrid',
-    price: 'from €5/hr',
-    lat: 40.4248,
-    lng: -3.7014,
-    description: 'Professional rehearsal rooms fully equipped with backline. Well-maintained gear in the heart of Malasaña — Madrid\'s most musical neighbourhood.',
-    hours: 'Mon–Sun · 10:00–02:00',
-    capacity: 'Up to 6 musicians',
-    tags: ['Backline included', 'Air conditioned', 'Central'],
+    price: 'desde €11/hr',
+    lat: 40.4037, lng: -3.6958,
+    description: '6 salas equipadas a 40m de Atocha Renfe. La mejor acústica del centro. Oferta 3×2 en mañanas L–V. Café incluido. Bono 15h desde 7€/h.',
+    hours: 'L–D · todo el día',
+    capacity: 'Hasta 6 músicos',
+    tags: ['Backline incluido', 'A 40m de Atocha', 'Bono 15h desde 7€/h'],
+    website: 'https://pandorasvox.es',
   },
   {
-    name: 'Sala de Ensayo Lavapiés',
+    name: 'UrbanStart',
+    neighborhood: 'La Latina',
+    city: 'Madrid',
+    price: 'desde €12.50/hr',
+    lat: 40.4098, lng: -3.7091,
+    description: 'En pleno corazón de La Latina. Acústica optimizada, alta calidad. GameZone para descansos. Comunidad de músicos activa.',
+    hours: 'L–D · todo el día',
+    capacity: 'Hasta 6 músicos',
+    tags: ['Acústica optimizada', 'GameZone', 'Comunidad activa'],
+    website: 'https://urbanstart.es',
+  },
+  {
+    name: 'Locales Underground',
+    neighborhood: 'Salamanca',
+    city: 'Madrid',
+    price: 'Consultar',
+    lat: 40.4339, lng: -3.6665,
+    description: '36 salas de 16–35m². Grabación profesional, streaming en directo, bar, tienda de accesorios y luthier en las instalaciones. Vigilancia 24h.',
+    hours: 'L–D · 24h',
+    capacity: '36 salas (16–35m²)',
+    tags: ['Grabación', 'Streaming en directo', 'Luthier'],
+    website: 'https://localesunderground.com',
+  },
+  {
+    name: 'IFAMA Artes Escénicas',
     neighborhood: 'Lavapiés',
     city: 'Madrid',
-    price: 'from €8/hr',
-    lat: 40.4079,
-    lng: -3.7043,
-    description: 'Creative rehearsal space in bohemian Lavapiés. Great acoustics, natural light, and a community of artists right at the door.',
-    hours: 'Mon–Sat · 09:00–22:00',
-    capacity: 'Up to 4 musicians',
-    tags: ['PA system', 'Acoustic treatment', 'Café nearby'],
+    price: 'Consultar',
+    lat: 40.4076, lng: -3.7019,
+    description: 'Salas de ensayo a 3 min del metro Embajadores. También disponibles para teatro y danza.',
+    hours: 'L–D · todo el día',
+    capacity: 'Varias salas',
+    tags: ['A 3 min de Embajadores', 'Teatro y danza', 'Centro'],
+    website: 'https://ifamartesescenicas.com',
   },
   {
-    name: 'StudiOne Madrid',
-    neighborhood: 'Chamberí',
+    name: 'El Rompeolas',
+    neighborhood: 'Madrid Centro',
     city: 'Madrid',
-    price: 'from €6/hr',
-    lat: 40.4352,
-    lng: -3.7097,
-    description: 'Modern rehearsal studio with recording capabilities. Chamberí\'s go-to space for bands looking to track a demo while they rehearse.',
-    hours: 'Mon–Sun · 08:00–24:00',
-    capacity: 'Up to 8 musicians',
-    tags: ['Recording booth', 'Grand piano', 'Parking'],
+    price: 'Consultar',
+    lat: 40.4060, lng: -3.6990,
+    description: '3 locales con insonorización box-in-box — la mejor del mercado. Sin filtración de sonido entre salas.',
+    hours: 'L–D · todo el día',
+    capacity: '3 salas',
+    tags: ['Box-in-box', 'Sin filtración', 'Insonorización premium'],
+    website: null,
   },
+  {
+    name: 'Ensayos Jendrix',
+    neighborhood: 'Alcobendas',
+    city: 'Madrid',
+    price: 'desde €12/hr',
+    lat: 40.5513, lng: -3.6396,
+    description: '7 locales + sala principal con escenario. Abierto todos los días 10:00–00:00. Parking. A 20 min del centro por A1/M40.',
+    hours: 'L–D · 10:00–00:00',
+    capacity: 'Hasta 8 músicos',
+    tags: ['Sala con escenario', 'Parking gratuito', 'A 20 min del centro'],
+    website: 'https://ensayosjendrix.es',
+  },
+  // ── Berlin ──────────────────────────────────────────────────────────────────
   {
     name: 'Pirate Studios Berlin',
     neighborhood: 'Tempelhof',
     city: 'Berlin',
     price: 'from €8/hr',
-    lat: 52.4703,
-    lng: 13.3976,
-    description: 'Self-service 24/7 rehearsal studios — book, enter, play. Pirate\'s smart-lock system lets you access gear any time with no staff required.',
+    lat: 52.4703, lng: 13.3976,
+    description: '24/7 self-service studios at Tempelhof. Book via app, walk in any hour. All rooms include backline — no setup time wasted.',
     hours: '24 / 7',
     capacity: 'Up to 5 musicians',
-    tags: ['24 / 7 access', 'Self-service', 'App booking'],
+    tags: ['24/7 access', 'App booking', 'Self-service'],
+    website: 'https://piratestudios.com',
   },
   {
     name: 'noisy at RAW',
     neighborhood: 'Friedrichshain',
     city: 'Berlin',
     price: 'from €7/hr',
-    lat: 52.5123,
-    lng: 13.4539,
-    description: 'Underground rehearsal space at the iconic RAW complex. Surrounded by clubs and creative studios — the most Berlin vibe you\'ll find.',
+    lat: 52.5123, lng: 13.4539,
+    description: 'Underground rehearsal complex inside the legendary RAW Gelände. Raw industrial vibes, professional sound. Bands only.',
     hours: 'Mon–Sun · 12:00–04:00',
     capacity: 'Up to 6 musicians',
-    tags: ['Underground feel', 'RAW complex', 'Night-friendly'],
+    tags: ['RAW complex', 'Underground', 'Night-friendly'],
+    website: 'https://noisyraw.de',
   },
   {
     name: 'Proberaum Berlin',
     neighborhood: 'Mitte',
     city: 'Berlin',
     price: 'from €6/hr',
-    lat: 52.5192,
-    lng: 13.3986,
-    description: 'Central rehearsal space right in Mitte. Easy to reach from anywhere in the city, with all the gear you need to get straight into it.',
+    lat: 52.5192, lng: 13.3986,
+    description: 'Central Berlin location in Mitte. Eight rehearsal rooms, professional PA, climate control. Monthly storage included.',
     hours: 'Mon–Fri · 10:00–22:00 · Sat–Sun · 10:00–20:00',
     capacity: 'Up to 5 musicians',
-    tags: ['Central location', 'U-Bahn 2 min', 'Clean gear'],
+    tags: ['Central Berlin', 'U-Bahn 2 min', 'Professional PA'],
+    website: 'https://proberaum-berlin.de',
   },
 ]
 
@@ -145,48 +184,76 @@ function createMarkerEl(space: SpaceDetail, onClick: () => void): HTMLElement {
   return wrapper
 }
 
-export default function SpacesMapPage() {
+function SpacesMapContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const initialCity = (() => {
+    const c = searchParams.get('city')
+    if (c === 'Madrid' || c === 'Berlin') return c as City
+    return 'All' as City
+  })()
+
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
+  const markersRef = useRef<mapboxgl.Marker[]>([])
 
-  const [city, setCity] = useState<City>('All')
+  const [city, setCity] = useState<City>(initialCity)
   const [selected, setSelected] = useState<SpaceDetail | null>(null)
 
   const visibleSpaces = city === 'All' ? SPACES : SPACES.filter(s => s.city === city)
 
-  // Init map
+  // ── Create map once ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
     mapboxgl.accessToken = TOKEN
 
+    const isAll = initialCity === 'All'
+    const cityKey = isAll ? 'Madrid' : initialCity
+    const { center, zoom } = CITY_CENTERS[cityKey as 'Madrid' | 'Berlin']
+
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/dark-v11',
-      center: [5.0, 48.0],
-      zoom: 4,
+      center: isAll ? [5.0, 48.0] : center,
+      zoom: isAll ? 4 : zoom,
       attributionControl: false,
       logoPosition: 'bottom-right',
     })
     mapRef.current = map
 
-    map.on('load', () => {
-      SPACES.forEach(space => {
-        const el = createMarkerEl(space, () => setSelected(space))
-        new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-          .setLngLat([space.lng, space.lat])
-          .addTo(map)
-      })
-    })
-
     return () => {
+      markersRef.current.forEach(m => m.remove())
+      markersRef.current = []
       map.remove()
       mapRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Fly when city filter changes
+  // ── Re-render markers when visibleSpaces changes ───────────────────────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    function renderMarkers() {
+      markersRef.current.forEach(m => m.remove())
+      markersRef.current = []
+
+      visibleSpaces.forEach(space => {
+        const el = createMarkerEl(space, () => setSelected(space))
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+          .setLngLat([space.lng, space.lat])
+          .addTo(map!)
+        markersRef.current.push(marker)
+      })
+    }
+
+    if (map.loaded()) renderMarkers()
+    else map.once('load', renderMarkers)
+  }, [visibleSpaces]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Fly when city filter changes ───────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -196,9 +263,11 @@ export default function SpacesMapPage() {
       const { center, zoom } = CITY_CENTERS[city]
       map.flyTo({ center, zoom, duration: 900 })
     }
+    // Clear selection when city changes
+    setSelected(null)
   }, [city])
 
-  // Fly to selected space
+  // ── Fly to selected space ──────────────────────────────────────────────────
   useEffect(() => {
     if (!selected || !mapRef.current) return
     mapRef.current.flyTo({ center: [selected.lng, selected.lat], zoom: 14, duration: 600 })
@@ -370,23 +439,47 @@ export default function SpacesMapPage() {
                 </div>
 
                 {/* CTA */}
-                <button
-                  type="button"
-                  style={{
-                    width: '100%', padding: '14px 20px', borderRadius: 999,
-                    background: '#FF5500', border: 'none', cursor: 'pointer',
-                    fontSize: 14, fontWeight: 700, color: '#000',
-                    boxShadow: '0 0 24px rgba(255,85,0,0.4)',
-                    WebkitTapHighlightColor: 'transparent',
-                  }}
-                >
-                  Book a session →
-                </button>
+                {selected.website ? (
+                  <a
+                    href={selected.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'block', width: '100%', padding: '14px 20px', borderRadius: 999,
+                      background: '#FF5500', cursor: 'pointer',
+                      fontSize: 14, fontWeight: 700, color: '#000', textAlign: 'center',
+                      boxShadow: '0 0 24px rgba(255,85,0,0.4)', textDecoration: 'none',
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    Visit website →
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    style={{
+                      width: '100%', padding: '14px 20px', borderRadius: 999,
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                      cursor: 'default', fontSize: 14, fontWeight: 600,
+                      color: 'rgba(240,239,235,0.35)',
+                    }}
+                  >
+                    No website — contact directly
+                  </button>
+                )}
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+export default function SpacesMapPage() {
+  return (
+    <Suspense>
+      <SpacesMapContent />
+    </Suspense>
   )
 }

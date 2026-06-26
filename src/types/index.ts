@@ -76,6 +76,7 @@ export interface NearbyMusician {
   last_active: string | null
   distance_km: number
   created_at?: string | null
+  influences?: string[] | null
 }
 
 export interface Message {

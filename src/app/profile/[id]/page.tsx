@@ -230,7 +230,7 @@ export default function ProfilePage() {
   const igUrl        = profile.instagram_url ?? (audioType === 'instagram' ? profile.audio_url : null)
   const extUrl       = audioType === 'link' ? profile.audio_url : null
   const isNew        = isNewProfile(profile.created_at)
-  const isOwnProfile = currentUserId === profile.id
+  const isOwnProfile = currentUserId !== null && currentUserId === profile.id
 
   async function handleWave() {
     if (waved || waving || !currentUserId) return
@@ -559,22 +559,20 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Send message CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-4 flex flex-col gap-2"
-        >
-          {!isOwnProfile && (
+        {/* Send message / Wave CTAs — hidden on own profile */}
+        {currentUserId !== null && !isOwnProfile && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-4 flex flex-col gap-2"
+          >
             <button
               onClick={() => router.push(`/messages/${id}`)}
               className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
             >
               Send message
             </button>
-          )}
-          {!isOwnProfile && (
             <button
               onClick={() => void handleWave()}
               disabled={waved || waving}
@@ -587,8 +585,8 @@ export default function ProfilePage() {
             >
               {waving ? 'Sending…' : waved ? '👋 Waved!' : '👋 Wave'}
             </button>
-          )}
-        </motion.div>
+          </motion.div>
+        )}
       </motion.div>
 
       <BottomNav />

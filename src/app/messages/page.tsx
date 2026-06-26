@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 
 interface ConversationPartner {
   id: string
@@ -61,12 +62,15 @@ export default function MessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const { permission, requestAndSubscribe } = usePushNotifications(userId)
+  const [pushDismissed, setPushDismissed] = useState(false)
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
       setUserId(user.id)
+      setLoading(true)
 
       // Fetch all messages using correct column names (from_id / to_id)
       const { data: msgs } = await supabase
@@ -75,7 +79,7 @@ export default function MessagesPage() {
         .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
 
-      if (!msgs || msgs.length === 0) { setLoading(false); return }
+      if (!msgs || msgs.length === 0) { setConversations([]); setLoading(false); return }
 
       // Group by conversation partner — keep most recent message per partner
       const seen = new Map<string, typeof msgs[0]>()
@@ -130,7 +134,15 @@ export default function MessagesPage() {
       setConversations(visible)
       setLoading(false)
     }
+
     void load()
+
+    // Re-fetch when tab becomes visible again (e.g. navigating back from chat)
+    function onVisible() {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -195,6 +207,31 @@ export default function MessagesPage() {
       </div>
 
       <div className="mx-auto max-w-lg px-4 pt-3 pb-24">
+        {/* Push notification prompt */}
+        {!loading && !pushDismissed && permission === 'default' && conversations.length > 0 && (
+          <div
+            className="mb-3 flex items-center gap-3 rounded-xl px-4 py-3"
+            style={{ background: 'rgba(255,85,0,0.08)', border: '1px solid rgba(255,85,0,0.18)' }}
+          >
+            <span style={{ fontSize: 20, flexShrink: 0 }}>🔔</span>
+            <p className="flex-1 text-xs text-[rgba(240,239,235,0.6)] leading-snug">
+              Get notified when musicians message you
+            </p>
+            <button
+              onClick={() => void requestAndSubscribe()}
+              className="flex-shrink-0 rounded-full bg-[#FF5500] px-3 py-1.5 text-xs font-semibold text-black"
+            >
+              Enable
+            </button>
+            <button
+              onClick={() => setPushDismissed(true)}
+              className="flex-shrink-0 text-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB] text-sm"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />

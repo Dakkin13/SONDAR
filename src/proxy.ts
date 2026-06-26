@@ -4,6 +4,8 @@ import { type NextRequest, NextResponse } from 'next/server'
 // Routes that require an authenticated session
 const PROTECTED = ['/home', '/explore', '/messages', '/settings', '/profile']
 
+const AUTH_GATE = process.env.NEXT_PUBLIC_WAITLIST_MODE === 'true' ? '/waitlist' : '/login'
+
 export async function proxy(request: NextRequest) {
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -55,7 +57,7 @@ export async function proxy(request: NextRequest) {
       )
       if (isProtected) {
         const url = request.nextUrl.clone()
-        url.pathname = '/login'
+        url.pathname = AUTH_GATE
         return NextResponse.redirect(url)
       }
       return supabaseResponse

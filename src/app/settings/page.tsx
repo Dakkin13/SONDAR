@@ -28,6 +28,7 @@ interface SettingsForm {
   objective: Objective | null
   level: Level | null
   availability: Availability[]
+  influences: string[]
 }
 
 // ─── Static data (mirrors onboarding) ─────────────────────────────────────────
@@ -105,10 +106,20 @@ const inputClass =
 
 // ─── Section heading ──────────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
   return (
     <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[rgba(240,239,235,0.3)]">
       {children}
+      {required && <span style={{ color: '#FF5500', marginLeft: 3 }}>*</span>}
+    </p>
+  )
+}
+
+function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
+  return (
+    <p className="mb-1.5 text-xs font-medium text-[rgba(240,239,235,0.38)]">
+      {children}
+      {required && <span style={{ color: '#FF5500', marginLeft: 2 }}>*</span>}
     </p>
   )
 }
@@ -179,6 +190,7 @@ export default function SettingsPage() {
   const addPhotoRef   = useRef<HTMLInputElement>(null)
 
   const [userId, setUserId] = useState<string | null>(null)
+  const [influenceInput, setInfluenceInput] = useState('')
   const [form, setForm] = useState<SettingsForm>({
     displayName: '',
     city: '',
@@ -194,6 +206,7 @@ export default function SettingsPage() {
     objective: null,
     level: null,
     availability: [],
+    influences: [],
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -227,7 +240,7 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from('profiles')
-        .select('display_name, city, bio, audio_url, instagram_url, avatar_url, photo_urls, instruments, genres, objective, level, availability')
+        .select('display_name, city, bio, audio_url, instagram_url, avatar_url, photo_urls, instruments, genres, objective, level, availability, influences')
         .eq('id', user.id)
         .single()
 
@@ -247,6 +260,7 @@ export default function SettingsPage() {
           objective: (data.objective as Objective | null) ?? null,
           level: (data.level as Level | null) ?? null,
           availability: (data.availability as Availability[]) ?? [],
+          influences: (data.influences as string[]) ?? [],
         })
       }
       setLoading(false)
@@ -361,6 +375,7 @@ export default function SettingsPage() {
       objective: toObjectiveEnum(form.objective),
       level: form.level,
       availability: form.availability,
+      influences: form.influences,
     })
 
     if (upsertErr) {
@@ -417,7 +432,8 @@ export default function SettingsPage() {
     !!form.level,
     !!form.city.trim(),
     form.availability.length > 0,
-  ].filter(Boolean).length / 7 * 100)
+    form.influences.length > 0,
+  ].filter(Boolean).length / 8 * 100)
 
   if (loading) {
     return (
@@ -496,6 +512,12 @@ export default function SettingsPage() {
               {completeness}% complete
             </span>
           </div>
+        </div>
+
+        <div className="mx-auto max-w-lg px-4 pt-3 pb-1">
+          <p className="text-[10px] text-[rgba(240,239,235,0.25)]">
+            <span style={{ color: '#FF5500' }}>*</span> Required for profile completeness
+          </p>
         </div>
 
         <div className="mx-auto max-w-lg px-4 py-5 space-y-6">
@@ -611,61 +633,76 @@ export default function SettingsPage() {
           <section className="space-y-4">
             <SectionLabel>Profile</SectionLabel>
 
-            <input
-              type="text"
-              value={form.displayName}
-              onChange={(e) => patch('displayName', e.target.value)}
-              placeholder="Your name"
-              maxLength={50}
-              className={inputClass}
-            />
-
-            <CityAutocomplete
-              value={form.city}
-              onChange={(v) => patch('city', v)}
-              onSelect={handleCitySelect}
-            />
-
-            <div className="relative">
-              <textarea
-                value={form.bio}
-                onChange={(e) => patch('bio', e.target.value.slice(0, BIO_MAX))}
-                placeholder="A few words about you and your music…"
-                rows={3}
-                className={cn(inputClass, 'resize-none pb-6')}
+            <div>
+              <FieldLabel required>Display name</FieldLabel>
+              <input
+                type="text"
+                value={form.displayName}
+                onChange={(e) => patch('displayName', e.target.value)}
+                placeholder="Your name"
+                maxLength={50}
+                className={inputClass}
               />
-              <span
-                className={cn(
-                  'absolute bottom-3 right-3 text-xs',
-                  form.bio.length >= BIO_MAX
-                    ? 'text-[#FF5500]'
-                    : 'text-[rgba(240,239,235,0.3)]',
-                )}
-              >
-                {form.bio.length}/{BIO_MAX}
-              </span>
             </div>
 
-            <input
-              type="url"
-              value={form.audioLink}
-              onChange={(e) => patch('audioLink', e.target.value)}
-              placeholder="YouTube or SoundCloud link (optional)"
-              className={inputClass}
-            />
+            <div>
+              <FieldLabel required>City / location</FieldLabel>
+              <CityAutocomplete
+                value={form.city}
+                onChange={(v) => patch('city', v)}
+                onSelect={handleCitySelect}
+              />
+            </div>
 
-            <input
-              type="text"
-              value={form.instagramUrl}
-              onChange={(e) => patch('instagramUrl', e.target.value)}
-              placeholder="Instagram handle or URL (optional)"
-              className={inputClass}
-            />
+            <div>
+              <FieldLabel required>Bio</FieldLabel>
+              <div className="relative">
+                <textarea
+                  value={form.bio}
+                  onChange={(e) => patch('bio', e.target.value.slice(0, BIO_MAX))}
+                  placeholder="A few words about you and your music…"
+                  rows={3}
+                  className={cn(inputClass, 'resize-none pb-6')}
+                />
+                <span
+                  className={cn(
+                    'absolute bottom-3 right-3 text-xs',
+                    form.bio.length >= BIO_MAX
+                      ? 'text-[#FF5500]'
+                      : 'text-[rgba(240,239,235,0.3)]',
+                  )}
+                >
+                  {form.bio.length}/{BIO_MAX}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>Audio link</FieldLabel>
+              <input
+                type="url"
+                value={form.audioLink}
+                onChange={(e) => patch('audioLink', e.target.value)}
+                placeholder="YouTube or SoundCloud link"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <FieldLabel>Instagram</FieldLabel>
+              <input
+                type="text"
+                value={form.instagramUrl}
+                onChange={(e) => patch('instagramUrl', e.target.value)}
+                placeholder="Handle or URL"
+                className={inputClass}
+              />
+            </div>
           </section>
 
           {/* ── Instruments ───────────────────────────────────────────────────── */}
           <section>
-            <SectionLabel>Instruments</SectionLabel>
+            <SectionLabel required>Instruments</SectionLabel>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {INSTRUMENTS.map(({ value, label, emoji }) => {
                 const selected = form.instruments.includes(value)
@@ -697,7 +734,7 @@ export default function SettingsPage() {
 
           {/* ── Genres ────────────────────────────────────────────────────────── */}
           <section>
-            <SectionLabel>Genres (max 3)</SectionLabel>
+            <SectionLabel required>Genres (max 3)</SectionLabel>
             <div className="flex flex-wrap gap-2">
               {GENRES.map(({ value, label }) => {
                 const selected = form.genres.includes(value)
@@ -762,7 +799,7 @@ export default function SettingsPage() {
 
           {/* ── Level ─────────────────────────────────────────────────────────── */}
           <section>
-            <SectionLabel>Level</SectionLabel>
+            <SectionLabel required>Level</SectionLabel>
             <div className="flex flex-wrap gap-2">
               {LEVELS.map(({ value, label }) => (
                 <button
@@ -783,7 +820,7 @@ export default function SettingsPage() {
 
           {/* ── Availability ──────────────────────────────────────────────────── */}
           <section>
-            <SectionLabel>Availability</SectionLabel>
+            <SectionLabel required>Availability</SectionLabel>
             <div className="flex flex-wrap gap-2">
               {AVAILABILITY_OPTIONS.map(({ value, label }) => (
                 <button
@@ -807,6 +844,72 @@ export default function SettingsPage() {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* ── Artists I like ────────────────────────────────────────────────── */}
+          <section>
+            <SectionLabel>Artists I like <span className="normal-case font-normal text-[rgba(240,239,235,0.2)]">(up to 10)</span></SectionLabel>
+            {/* Tag chips */}
+            {form.influences.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {form.influences.map((artist) => (
+                  <span
+                    key={artist}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+                    style={{
+                      background: 'rgba(255,85,0,0.10)',
+                      border: '1px solid rgba(255,85,0,0.25)',
+                      color: 'rgba(240,239,235,0.85)',
+                    }}
+                  >
+                    {artist}
+                    <button
+                      onClick={() => patch('influences', form.influences.filter((a) => a !== artist))}
+                      aria-label={`Remove ${artist}`}
+                      className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[10px] text-[rgba(240,239,235,0.4)] hover:text-[#FF5500]"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Input row */}
+            {form.influences.length < 10 && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={influenceInput}
+                  onChange={(e) => setInfluenceInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ',') && influenceInput.trim()) {
+                      e.preventDefault()
+                      const name = influenceInput.trim().replace(/,$/, '')
+                      if (name && !form.influences.includes(name) && form.influences.length < 10) {
+                        patch('influences', [...form.influences, name])
+                      }
+                      setInfluenceInput('')
+                    }
+                  }}
+                  placeholder="e.g. Radiohead, Portishead…"
+                  className={cn(inputClass, 'flex-1')}
+                />
+                <button
+                  onClick={() => {
+                    const name = influenceInput.trim()
+                    if (name && !form.influences.includes(name) && form.influences.length < 10) {
+                      patch('influences', [...form.influences, name])
+                    }
+                    setInfluenceInput('')
+                  }}
+                  disabled={!influenceInput.trim()}
+                  className="rounded-xl border border-[rgba(255,85,0,0.3)] bg-[rgba(255,85,0,0.08)] px-4 py-3 text-sm font-semibold text-[#FF5500] transition-opacity hover:opacity-80 disabled:opacity-30"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+            <p className="mt-1.5 text-xs text-[rgba(240,239,235,0.2)]">Press Enter or comma to add · shows on your profile</p>
           </section>
 
           {/* ── Blocked users ──────────────────────────────────────────────────── */}

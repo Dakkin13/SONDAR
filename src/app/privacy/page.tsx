@@ -63,7 +63,7 @@ export default function PrivacyPage() {
         >
           <Section title="Who We Are">
             <p>
-              Sondar (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) is a musician matchmaking platform that
+              Sondar is a musician matchmaking platform that
               connects musicians in cities across Europe. The data controller responsible for your personal data
               is Sondar, reachable at <a href="mailto:hello@sondar.app" className="text-[#FF5C00] hover:underline">hello@sondar.app</a>.
             </p>

@@ -78,6 +78,7 @@ interface FormState {
   instagramUrl: string
   avatarUrl: string | null
   photoUrls: string[]
+  influences: string[]
 }
 
 
@@ -108,6 +109,7 @@ export default function OnboardingPage() {
     instagramUrl: '',
     avatarUrl: null,
     photoUrls: [],
+    influences: [],
   })
 
   function patch<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -164,6 +166,7 @@ export default function OnboardingPage() {
         availability:   form.availability,
         instagram_url:  form.instagramUrl || null,
         is_onboarded:   true,
+        influences:     form.influences,
       }
 
       // ── Step D: validate before hitting the DB ──────────────────────────────
@@ -202,8 +205,6 @@ export default function OnboardingPage() {
       // ── Step G: show confirmation then trigger GlobalBackground bloom ─────
       go(4)
       window.dispatchEvent(new CustomEvent('sondar-step', { detail: { step: 'complete' } }))
-      // Fallback: navigate after 2.5s if bloom doesn't trigger
-      setTimeout(() => router.push('/explore'), 2500)
 
     } catch (err) {
       console.error('handleFinish failed:', err)
@@ -309,6 +310,7 @@ export default function OnboardingPage() {
               instagramUrl={form.instagramUrl}
               avatarUrl={form.avatarUrl}
               photoUrls={form.photoUrls}
+              influences={form.influences}
               onDisplayNameChange={(v) => patch('displayName', v)}
               onCityChange={(v) => patch('city', v)}
               onCitySelect={handleCitySelect}
@@ -317,6 +319,7 @@ export default function OnboardingPage() {
               onInstagramUrlChange={(v) => patch('instagramUrl', v)}
               onAvatarUrlChange={(v) => patch('avatarUrl', v)}
               onPhotoUrlsChange={(v) => patch('photoUrls', v)}
+              onInfluencesChange={(v) => patch('influences', v)}
             />
           )}
           {step === 4 && (

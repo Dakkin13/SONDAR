@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from 'next'
 import { Bebas_Neue, DM_Sans } from 'next/font/google'
 import './globals.css'
 import GlobalBackgroundWrapper from '@/components/GlobalBackgroundWrapper'
-import AmbientAudioWrapper from '@/components/AmbientAudioWrapper'
 import { ToastProvider } from '@/components/ui/Toast'
 import { Analytics } from '@vercel/analytics/react'
 
@@ -78,7 +77,6 @@ export default function RootLayout({
           </defs>
         </svg>
         <GlobalBackgroundWrapper />
-        <AmbientAudioWrapper />
         <ToastProvider>
           <div style={{ position: 'relative', zIndex: 1, minHeight: '100dvh', overflowX: 'clip' }}>
             {children}

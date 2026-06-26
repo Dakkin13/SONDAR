@@ -49,7 +49,7 @@ export default function AboutPage() {
           className="space-y-6 text-base leading-relaxed text-[rgba(240,239,235,0.6)]"
         >
           <p>
-            This platform was built to make that happen — to help musicians meet, form bands,
+            This platform was built to make that happen , to help musicians meet, form bands,
             and find spaces where they can actually play.
           </p>
 
@@ -64,20 +64,15 @@ export default function AboutPage() {
             </p>
             <p className="text-[rgba(240,239,235,0.75)] leading-relaxed">
               I&apos;ve played in several bands, and I&apos;ve experienced firsthand how difficult it can
-              be to find the right people — especially abroad, where you&apos;re starting from zero
+              be to find the right people , especially abroad, where you&apos;re starting from zero
               and don&apos;t know anyone. That experience shaped the vision behind Sondar: not just
               an app, but a community for musicians who are trying to create something together.
             </p>
           </div>
 
           <p>
-            I&apos;m 19, from Spain, and this comes from a genuine place — wanting to make that
-            process simpler, faster, and more human.
-          </p>
-
-          <p>
             At its core, Sondar is about community. Turning isolated musicians into bands,
-            rehearsals, and actual music. Because the people you need are already in your city —
+            rehearsals, and actual music. Because the people you need are already in your city ,
             they just can&apos;t find you yet.
           </p>
         </motion.div>
@@ -126,7 +121,7 @@ export default function AboutPage() {
             href="/login"
             className="flex items-center gap-2 rounded-full bg-[#FF5500] px-6 py-3 text-sm font-semibold text-black shadow-[0_0_28px_rgba(255,85,0,0.35)] transition-opacity hover:opacity-90"
           >
-            Join Sondar — it&apos;s free →
+            Join Sondar , it&apos;s free →
           </Link>
           <Link
             href="/"

@@ -23,12 +23,12 @@ const OBJECTIVE_LABELS: Record<Objective, string> = {
 
 const stagger = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.08 } },
+  show: { transition: { staggerChildren: 0.14, delayChildren: 0.1 } },
 }
 
 const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const } },
+  hidden: { opacity: 0, y: 22 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] as const } },
 }
 
 export default function Confirmation({
@@ -58,10 +58,13 @@ export default function Confirmation({
         </motion.p>
         <motion.h2
           variants={fadeUp}
-          className="text-5xl text-[#F0EFEB] md:text-6xl"
+          className="text-[#F0EFEB] md:text-7xl"
           style={{
             fontFamily: 'var(--font-bebas)',
-            textShadow: '0 0 60px rgba(255,85,0,0.35)',
+            fontSize: 72,
+            lineHeight: 1,
+            textShadow: '0 0 80px rgba(255,85,0,0.55)',
+            letterSpacing: '0.04em',
           }}
         >
           You&apos;re in.
@@ -76,9 +79,9 @@ export default function Confirmation({
 
       {/* Profile card preview */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.3, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        initial={{ opacity: 0, scale: 0.92, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ delay: 0.55, duration: 0.75, ease: [0.16, 1, 0.3, 1] }}
         className="glass w-full max-w-sm overflow-hidden"
       >
         <div className="flex items-start gap-4 p-5">
@@ -150,12 +153,12 @@ export default function Confirmation({
       </motion.div>
 
       <motion.button
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.55, duration: 0.4 }}
+        initial={{ opacity: 0, y: 12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 1.1, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         onClick={() => router.push('/explore')}
-        className="w-full max-w-sm rounded-xl bg-[#FF5500] py-4 font-semibold text-black shadow-[0_0_32px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
-        style={{ fontFamily: 'var(--font-dm-sans)' }}
+        className="w-full max-w-sm rounded-xl bg-[#FF5500] py-4 font-semibold text-black shadow-[0_0_48px_rgba(255,85,0,0.5)] transition-opacity hover:opacity-90 active:opacity-80"
+        style={{ fontFamily: 'var(--font-dm-sans)', fontSize: 16 }}
       >
         Find musicians near you →
       </motion.button>

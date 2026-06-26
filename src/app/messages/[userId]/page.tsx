@@ -60,6 +60,7 @@ export default function ChatPage() {
   const { toast } = useToast()
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null)
   const [other, setOther] = useState<OtherProfile | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set())
@@ -78,6 +79,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const wasEmptyRef = useRef(true)
+  const lastSentAtRef = useRef(0)
   const lastTapRef = useRef<Record<string, number>>({})
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,11 +117,16 @@ export default function ChatPage() {
       setCurrentUserId(user.id)
       currentUserIdRef.current = user.id
 
-      const [profileRes, historyRes] = await Promise.all([
+      const [profileRes, myProfileRes, historyRes] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, display_name, avatar_url, instruments, last_active')
           .eq('id', otherUserId)
+          .single(),
+        supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
           .single(),
         supabase
           .from('messages')
@@ -131,10 +138,22 @@ export default function ChatPage() {
       ])
 
       if (profileRes.data) setOther(profileRes.data as OtherProfile)
+      if (myProfileRes.data?.avatar_url) setCurrentUserAvatar(myProfileRes.data.avatar_url)
 
       const history = (historyRes.data as ChatMessage[]) ?? []
-      wasEmptyRef.current = history.length === 0
-      setMessages(history)
+      let isFreshStart = false
+      let deletedAt = 0
+      try {
+        isFreshStart = localStorage.getItem(`conv_fresh_start_${otherUserId}`) === '1'
+        deletedAt = parseInt(localStorage.getItem(`conv_deleted_at_${otherUserId}`) ?? '0', 10) || 0
+      } catch { /* ignore */ }
+      const filtered = isFreshStart
+        ? []
+        : deletedAt > 0
+          ? history.filter(m => new Date(m.created_at).getTime() > deletedAt)
+          : history
+      wasEmptyRef.current = filtered.length === 0
+      setMessages(filtered)
 
       // Seed liked set from history
       const liked = new Set(
@@ -309,6 +328,9 @@ export default function ChatPage() {
   const handleSend = async () => {
     const content = input.trim()
     if (!content || !currentUserId || sending) return
+    const now = Date.now()
+    if (now - lastSentAtRef.current < 1500) return
+    lastSentAtRef.current = now
 
     setSending(true)
     setInput('')
@@ -344,7 +366,16 @@ export default function ChatPage() {
       if (wasEmpty) {
         wasEmptyRef.current = false
         setShowConnection(true)
-        setTimeout(() => setShowConnection(false), 2200)
+        setTimeout(() => setShowConnection(false), 3600)
+        // Clear fresh-start flag, update cutoff to just before this message, unhide from inbox
+        try {
+          const newMsgTime = new Date((data as ChatMessage).created_at).getTime()
+          localStorage.removeItem(`conv_fresh_start_${otherUserId}`)
+          if (newMsgTime > 0) {
+            localStorage.setItem(`conv_deleted_at_${otherUserId}`, (newMsgTime - 1).toString())
+          }
+          localStorage.removeItem(`hidden_conv_${otherUserId}`)
+        } catch { /* ignore */ }
       }
     }
 
@@ -369,7 +400,12 @@ export default function ChatPage() {
       .eq('from_id', currentUserId)
       .eq('to_id', otherUserId)
     // Hide the conversation in the inbox (their messages I can't delete via RLS)
-    try { localStorage.setItem(`hidden_conv_${otherUserId}`, '1') } catch { /* ignore */ }
+    try {
+      localStorage.setItem(`hidden_conv_${otherUserId}`, '1')
+      localStorage.setItem(`conv_deleted_at_${otherUserId}`, Date.now().toString())
+      localStorage.setItem(`conv_fresh_start_${otherUserId}`, '1')
+    } catch { /* ignore */ }
+    router.refresh()
     router.push('/messages')
   }
 
@@ -402,56 +438,185 @@ export default function ChatPage() {
       <AnimatePresence>
         {showConnection && (
           <motion.div
+            key="connection-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-[#0D0D0D]"
+            exit={{ opacity: 0, transition: { duration: 1.0 } }}
+            transition={{ duration: 0.15 }}
+            onClick={() => setShowConnection(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 300,
+              background: '#040407',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              overflow: 'hidden',
+              cursor: 'pointer',
+            }}
           >
-            <div className="flex items-center gap-8 mb-8">
-              <motion.div
-                initial={{ x: -40, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
-                className="h-16 w-16 overflow-hidden rounded-full border-2 bg-[#1a1a1a]"
-                style={{ borderColor: 'rgba(255,92,0,0.5)', boxShadow: '0 0 24px rgba(255,92,0,0.3)' }}
+            {/* Orange orb — sweeps in from right, fills half the screen */}
+            <motion.div
+              aria-hidden
+              initial={{ x: 480, opacity: 0.5 }}
+              animate={{ x: 55, opacity: 1 }}
+              transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1], delay: 0.02 }}
+              style={{
+                position: 'absolute',
+                width: 820, height: 820, borderRadius: '50%',
+                top: '50%', left: '50%', marginLeft: -410, marginTop: -410,
+                background: 'radial-gradient(circle, rgba(255,80,0,1) 0%, rgba(255,60,0,0.7) 28%, rgba(255,40,0,0.25) 55%, transparent 72%)',
+                filter: 'blur(48px)',
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Violet orb — sweeps in from left */}
+            <motion.div
+              aria-hidden
+              initial={{ x: -480, opacity: 0.5 }}
+              animate={{ x: -55, opacity: 1 }}
+              transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1], delay: 0.02 }}
+              style={{
+                position: 'absolute',
+                width: 820, height: 820, borderRadius: '50%',
+                top: '50%', left: '50%', marginLeft: -410, marginTop: -410,
+                background: 'radial-gradient(circle, rgba(115,40,230,1) 0%, rgba(91,33,182,0.7) 28%, rgba(60,20,140,0.25) 55%, transparent 72%)',
+                filter: 'blur(48px)',
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Impact bloom — bright white-gold burst at collision point */}
+            <motion.div
+              aria-hidden
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: [0, 1.2, 3.0], opacity: [0, 1, 0] }}
+              transition={{ duration: 1.1, delay: 0.92, ease: [0.2, 0, 0.8, 1] }}
+              style={{
+                position: 'absolute',
+                width: 380, height: 380, borderRadius: '50%',
+                top: '50%', left: '50%', marginLeft: -190, marginTop: -190,
+                background: 'radial-gradient(circle, rgba(255,255,220,1) 0%, rgba(255,180,60,0.9) 25%, rgba(255,80,0,0.4) 55%, transparent 75%)',
+                filter: 'blur(24px)',
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Expanding ring at impact */}
+            <motion.div
+              aria-hidden
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: [0, 1, 3.5], opacity: [0, 1, 0] }}
+              transition={{ duration: 1.3, delay: 0.94, ease: 'easeOut' }}
+              style={{
+                position: 'absolute',
+                width: 160, height: 160, borderRadius: '50%',
+                top: '50%', left: '50%', marginLeft: -80, marginTop: -80,
+                border: '2.5px solid rgba(255,210,100,0.9)',
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Content */}
+            <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+              {/* Avatar pair */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 30, marginBottom: 52 }}>
+
+                {/* Other person — orange glow */}
+                <motion.div
+                  initial={{ x: -70, opacity: 0, scale: 0.55 }}
+                  animate={{ x: 0, opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.12, duration: 0.75, ease: [0.16, 1, 0.3, 1] as const }}
+                  style={{
+                    width: 82, height: 82, borderRadius: '50%',
+                    overflow: 'hidden', flexShrink: 0,
+                    border: '3px solid rgba(255,85,0,1)',
+                    boxShadow: '0 0 0 5px rgba(255,85,0,0.15), 0 0 48px rgba(255,85,0,0.75)',
+                    background: '#1a1a1a',
+                  }}
+                >
+                  {other?.avatar_url ? (
+                    <Image
+                      src={other.avatar_url}
+                      alt={other.display_name ?? ''}
+                      width={82} height={82}
+                      style={{ objectFit: 'cover', width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 28, color: 'rgba(255,85,0,0.9)' }}>
+                        {(other?.display_name ?? '?')[0]?.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+
+                {/* Connection spark — pops at impact */}
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: [0, 2.4, 1], opacity: [0, 1, 1] }}
+                  transition={{ delay: 0.76, duration: 0.55, ease: [0.16, 1, 0.3, 1] as const }}
+                  style={{
+                    width: 13, height: 13, borderRadius: '50%',
+                    background: '#FF5500',
+                    boxShadow: '0 0 0 4px rgba(255,85,0,0.25), 0 0 28px rgba(255,85,0,1), 0 0 70px rgba(255,85,0,0.6)',
+                    flexShrink: 0,
+                  }}
+                />
+
+                {/* Current user — violet glow */}
+                <motion.div
+                  initial={{ x: 70, opacity: 0, scale: 0.55 }}
+                  animate={{ x: 0, opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.12, duration: 0.75, ease: [0.16, 1, 0.3, 1] as const }}
+                  style={{
+                    width: 82, height: 82, borderRadius: '50%',
+                    overflow: 'hidden', flexShrink: 0,
+                    border: '3px solid rgba(139,92,246,1)',
+                    boxShadow: '0 0 0 5px rgba(91,33,182,0.15), 0 0 48px rgba(91,33,182,0.75)',
+                    background: '#1a1a1a',
+                  }}
+                >
+                  {currentUserAvatar ? (
+                    <Image
+                      src={currentUserAvatar}
+                      alt="You"
+                      width={82} height={82}
+                      style={{ objectFit: 'cover', width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 20, color: 'rgba(139,92,246,0.9)' }}>YOU</span>
+                    </div>
+                  )}
+                </motion.div>
+              </div>
+
+              {/* Text */}
+              <motion.p
+                initial={{ opacity: 0, y: 24, scale: 0.82 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: 1.0, duration: 0.65, ease: [0.16, 1, 0.3, 1] as const }}
+                style={{ fontFamily: 'var(--font-bebas)', fontSize: 52, letterSpacing: '0.10em', color: '#F0EFEB', lineHeight: 1, textAlign: 'center' }}
               >
-                {other?.avatar_url && (
-                  <Image src={other.avatar_url} alt="" width={64} height={64} className="h-full w-full object-cover" />
-                )}
-              </motion.div>
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: [0, 1.3, 1] }}
-                transition={{ delay: 0.35, duration: 0.4 }}
-                className="h-3 w-3 rounded-full bg-[#FF5C00]"
-                style={{ boxShadow: '0 0 12px rgba(255,92,0,0.8)' }}
-              />
-              <motion.div
-                initial={{ x: 40, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
-                className="h-16 w-16 overflow-hidden rounded-full border-2 bg-[#1a1a1a]"
-                style={{ borderColor: 'rgba(91,33,182,0.5)', boxShadow: '0 0 24px rgba(91,33,182,0.3)' }}
-              />
+                CONNECTION MADE.
+              </motion.p>
+              <motion.p
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.35, duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
+                style={{ fontSize: 14, color: 'rgba(240,239,235,0.5)', marginTop: 10, letterSpacing: '0.04em', textAlign: 'center' }}
+              >
+                Make some noise.
+              </motion.p>
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 0.45, 0.45, 0] }}
+                transition={{ delay: 2.2, duration: 2.4, times: [0, 0.15, 0.75, 1], repeat: Infinity, repeatDelay: 0.5 }}
+                style={{ fontSize: 10, color: 'rgba(240,239,235,0.38)', marginTop: 44, letterSpacing: '0.22em', textAlign: 'center' }}
+              >
+                TAP TO CONTINUE
+              </motion.p>
             </div>
-            <motion.p
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.4 }}
-              className="text-[#F0EFEB]"
-              style={{ fontFamily: 'var(--font-bebas)', fontSize: 40, letterSpacing: '0.08em' }}
-            >
-              CONNECTION MADE.
-            </motion.p>
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.4 }}
-              transition={{ delay: 0.7, duration: 0.4 }}
-              className="text-sm text-[rgba(240,239,235,0.4)] mt-2"
-            >
-              Make some noise.
-            </motion.p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -640,7 +805,7 @@ export default function ChatPage() {
                   style={{
                     position: 'absolute', top: 36, right: 0,
                     width: 200,
-                    background: 'rgba(22,22,22,0.98)',
+                    background: 'rgb(22,22,22)',
                     border: '1px solid rgba(255,255,255,0.10)',
                     borderRadius: 14,
                     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',

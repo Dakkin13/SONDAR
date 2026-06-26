@@ -110,15 +110,21 @@ function MusicianProfileCard({
   musician: m,
   index,
   connectedIds,
+  currentUserId,
+  userInstruments,
 }: {
   musician: NearbyMusician
   index: number
   connectedIds: Set<string>
+  currentUserId: string | null
+  userInstruments: string[]
 }) {
   const active = isActiveToday(m.last_active)
   const isNew = isNewMusician(m.created_at)
   const isConnected = connectedIds.has(m.id)
+  const isOwnCard = currentUserId !== null && currentUserId === m.id
   const primaryInstrument = m.instruments?.[0] ?? ''
+  const sharedInstruments = isOwnCard ? [] : (m.instruments ?? []).filter(i => userInstruments.includes(i))
 
   // Build ordered photo list: avatar first, then extras
   const allPhotos = [
@@ -166,7 +172,15 @@ function MusicianProfileCard({
                 style={{ fontFamily: 'var(--font-bebas)' }}>SONDAR</p>
               <div className="mt-1 h-px w-8 bg-[#FF5C00]" />
             </div>
-            {isNew && (
+            {isOwnCard && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[6px] font-semibold tracking-[0.15em]"
+                style={{ background: 'rgba(240,239,235,0.10)', border: '1px solid rgba(240,239,235,0.2)', color: 'rgba(240,239,235,0.6)', lineHeight: 1.4 }}
+              >
+                YOU
+              </span>
+            )}
+            {isNew && !isOwnCard && (
               <span
                 className="rounded-full px-1.5 py-0.5 text-[6px] font-semibold tracking-[0.15em] text-black"
                 style={{ background: '#FF5C00', lineHeight: 1.4 }}
@@ -185,6 +199,19 @@ function MusicianProfileCard({
                 }}
               >
                 ⚡ CONNECTED
+              </span>
+            )}
+            {sharedInstruments.length > 0 && (
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[6px] tracking-[0.12em]"
+                style={{
+                  background: 'rgba(255,85,0,0.15)',
+                  border: '1px solid rgba(255,85,0,0.35)',
+                  color: '#FF5C00',
+                  lineHeight: 1.4,
+                }}
+              >
+                🎵 {sharedInstruments[0].toUpperCase()}
               </span>
             )}
           </div>
@@ -343,6 +370,25 @@ function MusicianProfileCard({
               </span>
             )}
           </div>
+
+          {/* Influences row */}
+          {(m.influences?.length ?? 0) > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1 border-t border-[rgba(240,239,235,0.04)] pt-2">
+              <span className="self-center text-[8px] tracking-wider text-[rgba(240,239,235,0.25)] uppercase mr-0.5">likes</span>
+              {m.influences!.slice(0, 3).map((artist) => (
+                <span
+                  key={artist}
+                  className="rounded-full px-2 py-0.5 text-[8px] text-[rgba(240,239,235,0.5)]"
+                  style={{ border: '1px solid rgba(255,92,0,0.18)', background: 'rgba(255,92,0,0.05)' }}
+                >
+                  {artist}
+                </span>
+              ))}
+              {(m.influences!.length > 3) && (
+                <span className="text-[8px] text-[rgba(240,239,235,0.25)] self-center">+{m.influences!.length - 3}</span>
+              )}
+            </div>
+          )}
         </div>
       </Link>
     </motion.div>
@@ -389,6 +435,8 @@ export default function ExplorePage() {
   const { toast } = useToast()
   const [musicians, setMusicians] = useState<NearbyMusician[]>([])
   const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set())
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [userInstruments, setUserInstruments] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [instrument, setInstrument] = useState('')
@@ -413,7 +461,20 @@ export default function ExplorePage() {
       .rpc('get_nearby_musicians', { user_lat: lat, user_lng: lng, radius_km: 100 })
 
     if (!rpcError && rpcData && rpcData.length > 0) {
-      setMusicians(rpcData as NearbyMusician[])
+      // RPC doesn't include influences — fetch it separately and merge
+      const ids = (rpcData as { id: string }[]).map((m) => m.id)
+      const { data: influencesRows } = await supabase
+        .from('profiles')
+        .select('id, influences')
+        .in('id', ids)
+      const influencesMap = new Map(
+        (influencesRows ?? []).map((r) => [r.id, (r.influences as string[] | null)])
+      )
+      const merged = (rpcData as NearbyMusician[]).map((m) => ({
+        ...m,
+        influences: influencesMap.get(m.id) ?? null,
+      }))
+      setMusicians(merged)
       setPage(0)
       setLoading(false)
       setRefreshing(false)
@@ -423,7 +484,7 @@ export default function ExplorePage() {
     // Fallback: direct profiles query when RPC fails or returns nothing
     const { data: fallbackData } = await supabase
       .from('profiles')
-      .select('id, display_name, avatar_url, photo_urls, instruments, genres, objective, bio, city, last_active, created_at')
+      .select('id, display_name, avatar_url, photo_urls, instruments, genres, objective, bio, city, last_active, created_at, influences')
       .eq('is_onboarded', true)
       .eq('is_archived', false)
       .limit(60)
@@ -448,7 +509,10 @@ export default function ExplorePage() {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
+      setCurrentUserId(user.id)
       void supabase.rpc('touch_last_active')
+      supabase.from('profiles').select('instruments').eq('id', user.id).single()
+        .then(({ data }) => setUserInstruments((data?.instruments as string[]) ?? []))
 
       // Fetch conversation partners (users this person has exchanged messages with)
       const [{ data: sent }, { data: received }] = await Promise.all([
@@ -693,7 +757,7 @@ export default function ExplorePage() {
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((m, i) => (
-                <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} />
+                <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} currentUserId={currentUserId} userInstruments={userInstruments} />
               ))}
             </div>
             {canLoadMore && (
