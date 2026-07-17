@@ -113,12 +113,20 @@ export default function NewBandPage() {
         .single()
       if (bandError) throw bandError
 
-      const memberRows = [
-        { band_id: band.id, user_id: user.id, role: 'owner' },
-        ...selectedIds.map(id => ({ band_id: band.id, user_id: id, role: 'member' })),
-      ]
-      const { error: membersError } = await supabase.from('band_members').insert(memberRows)
-      if (membersError) throw membersError
+      // Insert the owner row first and let it commit before adding other members —
+      // the RLS policy on band_members checks is_band_admin(band_id) for anyone
+      // other than yourself, which only sees this owner row once it's committed
+      // as its own statement, not as part of a single batched insert.
+      const { error: ownerError } = await supabase
+        .from('band_members')
+        .insert({ band_id: band.id, user_id: user.id, role: 'owner' })
+      if (ownerError) throw ownerError
+
+      if (selectedIds.length > 0) {
+        const memberRows = selectedIds.map(id => ({ band_id: band.id, user_id: id, role: 'member' }))
+        const { error: membersError } = await supabase.from('band_members').insert(memberRows)
+        if (membersError) throw membersError
+      }
 
       router.push(`/bands/${band.id}`)
     } catch (err) {
