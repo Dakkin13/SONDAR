@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getErrorMessage } from '@/lib/utils'
 
 interface Connection {
   id: string
@@ -86,7 +87,7 @@ export default function NewBandPage() {
       URL.revokeObjectURL(objectUrl)
       setLocalPreview(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Avatar upload failed')
+      setError(getErrorMessage(err, 'Avatar upload failed'))
       setLocalPreview(null)
     } finally {
       setUploading(false)
@@ -106,11 +107,14 @@ export default function NewBandPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not signed in')
 
-      const { data: band, error: bandError } = await supabase
+      // Generate the id client-side so we never need to read the row back —
+      // chaining .select() onto the insert would trigger bands' SELECT RLS
+      // policy (is_band_member), which the creator doesn't satisfy yet at
+      // this exact moment since the owner row below hasn't been inserted.
+      const bandId = crypto.randomUUID()
+      const { error: bandError } = await supabase
         .from('bands')
-        .insert({ name: name.trim(), bio: bio.trim() || null, avatar_url: avatarUrl, created_by: user.id })
-        .select()
-        .single()
+        .insert({ id: bandId, name: name.trim(), bio: bio.trim() || null, avatar_url: avatarUrl, created_by: user.id })
       if (bandError) throw bandError
 
       // Insert the owner row first and let it commit before adding other members —
@@ -119,18 +123,18 @@ export default function NewBandPage() {
       // as its own statement, not as part of a single batched insert.
       const { error: ownerError } = await supabase
         .from('band_members')
-        .insert({ band_id: band.id, user_id: user.id, role: 'owner' })
+        .insert({ band_id: bandId, user_id: user.id, role: 'owner' })
       if (ownerError) throw ownerError
 
       if (selectedIds.length > 0) {
-        const memberRows = selectedIds.map(id => ({ band_id: band.id, user_id: id, role: 'member' }))
+        const memberRows = selectedIds.map(id => ({ band_id: bandId, user_id: id, role: 'member' }))
         const { error: membersError } = await supabase.from('band_members').insert(memberRows)
         if (membersError) throw membersError
       }
 
-      router.push(`/bands/${band.id}`)
+      router.push(`/bands/${bandId}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create band')
+      setError(getErrorMessage(err, 'Could not create band'))
       setSaving(false)
     }
   }

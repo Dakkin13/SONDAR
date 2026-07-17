@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Band, BandMemberProfile, BandRole } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
+import { getErrorMessage } from '@/lib/utils'
 
 interface Connection {
   id: string
@@ -155,7 +156,7 @@ export default function BandDetailPage() {
       setSelectedInviteIds([])
       void loadAll()
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not send invite', 'error')
+      toast(getErrorMessage(err, 'Could not send invite'), 'error')
     } finally {
       setInviting(false)
     }

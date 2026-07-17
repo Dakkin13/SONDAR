@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Band, BandMemberProfile, BandRole } from '@/types'
 import { useToast } from '@/components/ui/Toast'
+import { getErrorMessage } from '@/lib/utils'
 
 const inputClass =
   'w-full rounded-xl border border-[rgba(240,239,235,0.08)] bg-[#1C1C1C] px-4 py-3 text-sm text-[#F0EFEB] placeholder:text-[rgba(240,239,235,0.3)] outline-none focus:border-[rgba(255,85,0,0.5)] focus:ring-1 focus:ring-[rgba(255,85,0,0.3)] transition-colors'
@@ -89,7 +90,7 @@ export default function BandSettingsPage() {
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       setAvatarUrl(data.publicUrl)
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Avatar upload failed', 'error')
+      toast(getErrorMessage(err, 'Avatar upload failed'), 'error')
     } finally {
       setUploading(false)
       if (avatarInputRef.current) avatarInputRef.current.value = ''
@@ -106,7 +107,7 @@ export default function BandSettingsPage() {
       if (error) throw error
       toast('Band updated', 'default')
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not save changes', 'error')
+      toast(getErrorMessage(err, 'Could not save changes'), 'error')
     } finally {
       setSaving(false)
     }
