@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
 // Routes that require an authenticated session
-const PROTECTED = ['/home', '/explore', '/messages', '/settings', '/profile']
+const PROTECTED = ['/home', '/explore', '/messages', '/settings', '/profile', '/bands']
 
 const AUTH_GATE = process.env.NEXT_PUBLIC_WAITLIST_MODE === 'true' ? '/waitlist' : '/login'
 
