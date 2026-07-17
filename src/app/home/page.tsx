@@ -210,7 +210,7 @@ export default function HomePage() {
           >
             {profile?.avatar_url ? (
               <Image src={profile.avatar_url} alt={profile.display_name ?? 'Me'} width={48} height={48}
-                style={{ borderRadius: '50%', objectFit: 'cover',
+                style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover',
                   border: '2px solid #8B5CF6', boxShadow: '0 0 0 4px rgba(139,92,246,0.20), 0 0 16px rgba(139,92,246,0.30)' }} />
             ) : (
               <div className="flex items-center justify-center"
@@ -308,7 +308,7 @@ export default function HomePage() {
                       <div style={{ position: 'relative' }}>
                         {m.avatar_url ? (
                           <Image src={m.avatar_url} alt={m.display_name ?? ''} width={54} height={54}
-                            style={{ borderRadius: '50%', objectFit: 'cover',
+                            style={{ width: 54, height: 54, borderRadius: '50%', objectFit: 'cover',
                               border: active ? '2px solid #FF5C00' : '2px solid rgba(240,239,235,0.1)',
                               boxShadow: active ? '0 0 10px rgba(255,92,0,0.35)' : 'none' }} />
                         ) : (

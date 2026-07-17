@@ -419,7 +419,7 @@ export default function BottomNav() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                       {msg.from_avatar
-                        ? <Image src={msg.from_avatar} alt="" width={36} height={36} style={{ objectFit: 'cover' }} />
+                        ? <Image src={msg.from_avatar} alt="" width={36} height={36} style={{ width: 36, height: 36, objectFit: 'cover' }} />
                         : <span style={{ fontSize: 14, fontWeight: 700, color: '#FF5C00', fontFamily: 'var(--font-bebas)' }}>
                             {(msg.from_name ?? '?')[0].toUpperCase()}
                           </span>

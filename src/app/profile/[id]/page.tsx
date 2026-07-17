@@ -364,7 +364,7 @@ export default function ProfilePage() {
               {profile.avatar_url ? (
                 <Image src={profile.avatar_url} alt={profile.display_name ?? 'Musician'}
                   width={88} height={88}
-                  style={{ borderRadius: '50%', objectFit: 'cover',
+                  style={{ width: 88, height: 88, borderRadius: '50%', objectFit: 'cover',
                     border: '2px solid rgba(255,92,0,0.6)',
                     boxShadow: '0 0 24px rgba(255,92,0,0.35)', position: 'relative', zIndex: 1 }} />
               ) : (
@@ -487,7 +487,7 @@ export default function ProfilePage() {
                     <Image src={url} alt={`Photo ${i + 1}`}
                       width={90} height={90}
                       className="rounded-lg object-cover"
-                      style={{ border: '1px solid rgba(240,239,235,0.08)' }} />
+                      style={{ width: 90, height: 90, border: '1px solid rgba(240,239,235,0.08)' }} />
                   </button>
                 ))}
               </div>

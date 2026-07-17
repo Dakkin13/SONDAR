@@ -745,7 +745,7 @@ export default function ChatPage() {
                 width={38}
                 height={38}
                 style={{
-                  borderRadius: '50%', objectFit: 'cover',
+                  width: 38, height: 38, borderRadius: '50%', objectFit: 'cover',
                   border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)',
                 }}
               />
