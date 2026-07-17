@@ -15,6 +15,7 @@ interface BellMessage {
   from_name: string | null
   from_avatar: string | null
   partner_id: string
+  isBand?: boolean
 }
 
 function formatRelTime(iso: string): string {
@@ -50,6 +51,9 @@ export default function BottomNav() {
   const bellRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const realtimeRef = useRef<any>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bandRealtimeRef = useRef<any>(null)
+  const myBandIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const supabase = createClient()
@@ -74,20 +78,51 @@ export default function BottomNav() {
         (Array.isArray(data.influences) && data.influences.length === 0)
       setProfileIncomplete(missing)
 
-      // Initial unread badge count
+      // Initial unread badge count (DMs)
       const { count } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('to_id', user.id)
         .is('read_at', null)
-      setUnreadCount(count ?? 0)
 
-      // Real-time subscription for new incoming messages
+      // Initial unread badge count (bands)
+      const { data: memberships } = await supabase
+        .from('band_members')
+        .select('band_id')
+        .eq('user_id', user.id)
+      const bandIds = (memberships ?? []).map(m => m.band_id)
+      myBandIdsRef.current = new Set(bandIds)
+
+      let bandUnread = 0
+      if (bandIds.length > 0) {
+        const { data: bandMsgs } = await supabase
+          .from('band_messages')
+          .select('from_id, read_by')
+          .in('band_id', bandIds)
+        bandUnread = (bandMsgs ?? []).filter(
+          m => m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)
+        ).length
+      }
+
+      setUnreadCount((count ?? 0) + bandUnread)
+
+      // Real-time subscription for new incoming DMs
       realtimeRef.current = supabase
         .channel(`nav-unread-${user.id}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
           const msg = payload.new as { to_id: string; read_at: string | null }
           if (msg.to_id === userId && !msg.read_at) {
+            setUnreadCount(c => c + 1)
+          }
+        })
+        .subscribe()
+
+      // Real-time subscription for new incoming band messages
+      bandRealtimeRef.current = supabase
+        .channel(`nav-unread-bands-${user.id}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'band_messages' }, (payload) => {
+          const msg = payload.new as { band_id: string; from_id: string }
+          if (msg.from_id !== userId && myBandIdsRef.current.has(msg.band_id)) {
             setUnreadCount(c => c + 1)
           }
         })
@@ -98,6 +133,9 @@ export default function BottomNav() {
     return () => {
       if (realtimeRef.current) {
         void createClient().removeChannel(realtimeRef.current)
+      }
+      if (bandRealtimeRef.current) {
+        void createClient().removeChannel(bandRealtimeRef.current)
       }
     }
   }, [])
@@ -135,22 +173,19 @@ export default function BottomNav() {
         .order('created_at', { ascending: false })
         .limit(10)
 
-      if (!msgs || msgs.length === 0) { setBellLoading(false); return }
-
       // Deduplicate by sender — keep most recent per sender
-      const seen = new Map<string, typeof msgs[0]>()
-      for (const m of msgs) {
+      const seen = new Map<string, NonNullable<typeof msgs>[0]>()
+      for (const m of msgs ?? []) {
         if (!seen.has(m.from_id)) seen.set(m.from_id, m)
       }
 
       const senderIds = Array.from(seen.keys())
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url')
-        .in('id', senderIds)
+      const { data: profiles } = senderIds.length > 0
+        ? await supabase.from('profiles').select('id, display_name, avatar_url').in('id', senderIds)
+        : { data: [] }
       const pMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
 
-      const items: BellMessage[] = Array.from(seen.values()).map(m => ({
+      const dmItems: BellMessage[] = Array.from(seen.values()).map(m => ({
         id: m.id,
         content: m.content,
         created_at: m.created_at,
@@ -159,9 +194,52 @@ export default function BottomNav() {
         partner_id: m.from_id,
       }))
 
-      setBellMessages(items)
+      // Fetch recent band messages across the user's bands
+      const bandIds = Array.from(myBandIdsRef.current)
+      let bandItems: BellMessage[] = []
+      if (bandIds.length > 0) {
+        const { data: bandMsgs } = await supabase
+          .from('band_messages')
+          .select('id, band_id, content, created_at, from_id, read_by')
+          .in('band_id', bandIds)
+          .order('created_at', { ascending: false })
+          .limit(10)
 
-      // Mark as read
+        const bandSeen = new Map<string, NonNullable<typeof bandMsgs>[0]>()
+        for (const m of bandMsgs ?? []) {
+          if (!bandSeen.has(m.band_id)) bandSeen.set(m.band_id, m)
+        }
+        const seenBandIds = Array.from(bandSeen.keys())
+        const { data: bandsData } = seenBandIds.length > 0
+          ? await supabase.from('bands').select('id, name, avatar_url').in('id', seenBandIds)
+          : { data: [] }
+        const bMap = new Map(bandsData?.map(b => [b.id, b]) ?? [])
+
+        bandItems = Array.from(bandSeen.values()).map(m => ({
+          id: m.id,
+          content: m.content,
+          created_at: m.created_at,
+          from_name: bMap.get(m.band_id)?.name ?? null,
+          from_avatar: bMap.get(m.band_id)?.avatar_url ?? null,
+          partner_id: m.band_id,
+          isBand: true,
+        }))
+
+        // Mark unread band messages as read (array-append computed client-side)
+        for (const m of bandMsgs ?? []) {
+          if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
+            const newReadBy = [...(m.read_by ?? []), user.id]
+            void supabase.from('band_messages').update({ read_by: newReadBy }).eq('id', m.id)
+          }
+        }
+      }
+
+      const merged = [...dmItems, ...bandItems].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      setBellMessages(merged)
+
+      // Mark DMs as read
       await supabase
         .from('messages')
         .update({ read_at: new Date().toISOString() })
@@ -395,7 +473,7 @@ export default function BottomNav() {
                   <button
                     key={msg.id}
                     type="button"
-                    onClick={() => { setBellOpen(false); router.push(`/messages/${msg.partner_id}`) }}
+                    onClick={() => { setBellOpen(false); router.push(msg.isBand ? `/messages/band/${msg.partner_id}` : `/messages/${msg.partner_id}`) }}
                     style={{
                       width: '100%',
                       display: 'flex',

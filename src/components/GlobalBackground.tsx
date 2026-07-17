@@ -34,11 +34,15 @@ const STAGES: Record<string, Stage> = {
   explore:  { orange: { x:0.75, y:0.25, r:0.45 }, violet: { x:0.18, y:0.75, r:0.38 } },
   messages: { orange: { x:0.50, y:0.20, r:0.30 }, violet: { x:0.28, y:0.80, r:0.25 } },
   profile:  { orange: { x:0.52, y:0.25, r:0.38 }, violet: { x:0.20, y:0.75, r:0.32 } },
+  bands:    { orange: { x:0.52, y:0.25, r:0.38 }, violet: { x:0.20, y:0.75, r:0.32 } },
 }
 
 function stageName(pathname: string, step: number): string {
   if (pathname.startsWith('/explore')) return 'explore'
+  // /messages/band/[bandId] intentionally reuses the 'messages' stage — same
+  // chat context, no need for a distinct orb position.
   if (pathname.startsWith('/messages')) return 'messages'
+  if (pathname.startsWith('/bands')) return 'bands'
   if (pathname.startsWith('/profile')) return 'profile'
   if (pathname === '/onboarding') return `step${Math.min(step, 4)}`
   return 'landing'

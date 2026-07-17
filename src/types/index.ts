@@ -87,3 +87,70 @@ export interface Message {
   content: string
   read_at: string | null
 }
+
+// ── Bands ──────────────────────────────────────────────────────────────────
+// Mirrors public.bands / public.band_members / public.band_join_requests /
+// public.band_messages exactly (see CLAUDE.md "Database — bands feature").
+// These follow the ACTUAL runtime column naming used throughout the app
+// (from_id, avatar_url, created_at) — not the stale Profile/Message shapes
+// above (sender_id/recipient_id, objectives, location_lat/lng), which don't
+// match real Supabase columns and shouldn't be used as a template.
+
+export type BandRole = 'owner' | 'admin' | 'member'
+
+export interface Band {
+  id: string
+  name: string
+  avatar_url: string | null
+  bio: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BandMember {
+  band_id: string
+  user_id: string
+  role: BandRole
+  joined_at: string
+}
+
+// Joined shape used by /bands and /bands/[bandId] (band_members + profiles)
+export interface BandMemberProfile {
+  user_id: string
+  role: BandRole
+  joined_at: string
+  display_name: string | null
+  avatar_url: string | null
+  instruments: Instrument[]
+}
+
+export type BandJoinRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled'
+
+export interface BandJoinRequest {
+  id: string
+  band_id: string
+  invited_user_id: string
+  invited_by: string
+  status: BandJoinRequestStatus
+  created_at: string
+  responded_at: string | null
+}
+
+export interface BandMessage {
+  id: string
+  band_id: string
+  from_id: string
+  content: string
+  created_at: string
+  read_by: string[]
+  liked_by: string[]
+}
+
+// Row shape used by /bands list and the unified /messages inbox
+export interface BandListItem {
+  band: Band
+  memberCount: number
+  lastMessage: { content: string; created_at: string; from_id: string } | null
+  unreadCount: number
+}

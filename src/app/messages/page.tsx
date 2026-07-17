@@ -24,6 +24,21 @@ interface Conversation {
   unreadCount: number
 }
 
+// Unified inbox row — a DM conversation or a band conversation, sorted together by lastAt.
+type InboxRow =
+  | { type: 'dm'; key: string; data: Conversation }
+  | {
+      type: 'band'
+      key: string
+      bandId: string
+      name: string
+      avatarUrl: string | null
+      memberCount: number
+      lastContent: string | null
+      lastAt: string
+      unreadCount: number
+    }
+
 const INSTRUMENT_EMOJI: Record<string, string> = {
   guitar: '🎸', bass: '🎸', drums: '🥁', keys: '🎹', piano: '🎹',
   violin: '🎻', cello: '🎻', trumpet: '🎺', saxophone: '🎷', flute: '🪈',
@@ -59,7 +74,7 @@ export default function MessagesPage() {
   const supabase = createClient()
 
   const [userId, setUserId] = useState<string | null>(null)
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [inboxRows, setInboxRows] = useState<InboxRow[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const { permission, requestAndSubscribe } = usePushNotifications(userId)
@@ -79,13 +94,11 @@ export default function MessagesPage() {
         .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
 
-      if (!msgs || msgs.length === 0) { setConversations([]); setLoading(false); return }
-
       // Group by conversation partner — keep most recent message per partner
-      const seen = new Map<string, typeof msgs[0]>()
+      const seen = new Map<string, NonNullable<typeof msgs>[0]>()
       const unreadMap = new Map<string, number>()
 
-      for (const m of msgs) {
+      for (const m of msgs ?? []) {
         const partner = m.from_id === user.id ? m.to_id : m.from_id
         if (!seen.has(partner)) seen.set(partner, m)
         // Count unread messages FROM other person
@@ -96,10 +109,12 @@ export default function MessagesPage() {
 
       // Fetch partner profiles with instruments for chips
       const partnerIds = Array.from(seen.keys())
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url, instruments, last_active')
-        .in('id', partnerIds)
+      const { data: profiles } = partnerIds.length > 0
+        ? await supabase
+            .from('profiles')
+            .select('id, display_name, avatar_url, instruments, last_active')
+            .in('id', partnerIds)
+        : { data: [] }
 
       const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
 
@@ -131,7 +146,56 @@ export default function MessagesPage() {
         return true
       })
 
-      setConversations(visible)
+      const dmRows: InboxRow[] = visible.map(c => ({ type: 'dm', key: `dm-${c.partner.id}`, data: c }))
+
+      // ── Bands — merge into the same unified inbox ──────────────────────────
+      const { data: memberships } = await supabase
+        .from('band_members')
+        .select('band_id')
+        .eq('user_id', user.id)
+
+      const bandIds = (memberships ?? []).map(m => m.band_id)
+      let bandRows: InboxRow[] = []
+      if (bandIds.length > 0) {
+        const [{ data: bands }, { data: allMembers }, { data: recentMessages }] = await Promise.all([
+          supabase.from('bands').select('id, name, avatar_url').in('id', bandIds),
+          supabase.from('band_members').select('band_id').in('band_id', bandIds),
+          supabase.from('band_messages').select('band_id, content, created_at, from_id, read_by').in('band_id', bandIds),
+        ])
+
+        const memberCountMap = new Map<string, number>()
+        for (const m of allMembers ?? []) {
+          memberCountMap.set(m.band_id, (memberCountMap.get(m.band_id) ?? 0) + 1)
+        }
+        const lastMsgMap = new Map<string, { content: string; created_at: string }>()
+        const unreadMap = new Map<string, number>()
+        for (const m of (recentMessages ?? []).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())) {
+          if (!lastMsgMap.has(m.band_id)) lastMsgMap.set(m.band_id, { content: m.content, created_at: m.created_at })
+          if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
+            unreadMap.set(m.band_id, (unreadMap.get(m.band_id) ?? 0) + 1)
+          }
+        }
+
+        bandRows = (bands ?? []).map(b => ({
+          type: 'band' as const,
+          key: `band-${b.id}`,
+          bandId: b.id,
+          name: b.name,
+          avatarUrl: b.avatar_url,
+          memberCount: memberCountMap.get(b.id) ?? 1,
+          lastContent: lastMsgMap.get(b.id)?.content ?? null,
+          lastAt: lastMsgMap.get(b.id)?.created_at ?? new Date(0).toISOString(),
+          unreadCount: unreadMap.get(b.id) ?? 0,
+        }))
+      }
+
+      const merged = [...dmRows, ...bandRows].sort((a, b) => {
+        const at = a.type === 'dm' ? a.data.lastAt : a.lastAt
+        const bt = b.type === 'dm' ? b.data.lastAt : b.lastAt
+        return new Date(bt).getTime() - new Date(at).getTime()
+      })
+
+      setInboxRows(merged)
       setLoading(false)
     }
 
@@ -144,6 +208,14 @@ export default function MessagesPage() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function rowName(row: InboxRow): string {
+    return row.type === 'dm' ? (row.data.partner.display_name ?? '') : row.name
+  }
+
+  const filteredRows = inboxRows.filter(
+    row => !searchQuery || rowName(row).toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   return (
     <div style={{ minHeight: '100dvh' }}>
@@ -165,9 +237,9 @@ export default function MessagesPage() {
             >
               MESSAGES
             </h1>
-            {userId && conversations.length > 0 && (
+            {userId && inboxRows.length > 0 && (
               <p className="text-[11px] text-[rgba(240,239,235,0.3)]">
-                {conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+                {inboxRows.length} conversation{inboxRows.length !== 1 ? 's' : ''}
               </p>
             )}
           </div>
@@ -179,7 +251,7 @@ export default function MessagesPage() {
           </Link>
         </div>
         {/* Search input */}
-        {conversations.length > 0 && (
+        {inboxRows.length > 0 && (
           <div className="mx-auto max-w-lg mt-2">
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.25)]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -208,7 +280,7 @@ export default function MessagesPage() {
 
       <div className="mx-auto max-w-lg px-4 pt-3 pb-24">
         {/* Push notification prompt */}
-        {!loading && !pushDismissed && permission === 'default' && conversations.length > 0 && (
+        {!loading && !pushDismissed && permission === 'default' && inboxRows.length > 0 && (
           <div
             className="mb-3 flex items-center gap-3 rounded-xl px-4 py-3"
             style={{ background: 'rgba(255,85,0,0.08)', border: '1px solid rgba(255,85,0,0.18)' }}
@@ -236,7 +308,7 @@ export default function MessagesPage() {
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
           </div>
-        ) : conversations.length === 0 || (searchQuery && conversations.filter(c => c.partner.display_name?.toLowerCase().includes(searchQuery.toLowerCase())).length === 0) ? (
+        ) : inboxRows.length === 0 || (searchQuery && filteredRows.length === 0) ? (
           <div className="flex flex-col items-center gap-4 py-24 text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl"
               style={{ background: 'rgba(255,92,0,0.08)', border: '1px solid rgba(255,92,0,0.15)' }}>
@@ -261,8 +333,88 @@ export default function MessagesPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {conversations.filter(c => !searchQuery || c.partner.display_name?.toLowerCase().includes(searchQuery.toLowerCase())).map((convo, i) => {
-              const { partner, lastContent, lastAt, lastFromMe, unreadCount } = convo
+            {filteredRows.map((row, i) => {
+              if (row.type === 'band') {
+                const hasUnread = row.unreadCount > 0
+                return (
+                  <motion.button
+                    key={row.key}
+                    custom={i}
+                    variants={fadeUp}
+                    initial="hidden"
+                    animate="show"
+                    onClick={() => router.push(`/messages/band/${row.bandId}`)}
+                    className="w-full text-left transition-all duration-150 active:scale-[0.99]"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '13px 14px', borderRadius: 18,
+                      background: hasUnread ? 'rgba(255,92,0,0.07)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${hasUnread ? 'rgba(255,92,0,0.20)' : 'rgba(255,255,255,0.07)'}`,
+                    }}
+                  >
+                    {/* Band avatar (rounded-square) + people-icon badge */}
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      {row.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={row.avatarUrl}
+                          alt={row.name}
+                          style={{ width: 50, height: 50, borderRadius: 14, objectFit: 'cover', border: '1.5px solid rgba(240,239,235,0.10)' }}
+                        />
+                      ) : (
+                        <div
+                          className="flex items-center justify-center"
+                          style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(255,92,0,0.10)', border: '1.5px solid rgba(255,92,0,0.15)' }}
+                        >
+                          <span className="text-lg">🎸</span>
+                        </div>
+                      )}
+                      <div style={{
+                        position: 'absolute', bottom: -2, right: -2,
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: '#1a1a1a', border: '1.5px solid #0D0D0D',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FF5C00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                          <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
+                        <span style={{ fontWeight: hasUnread ? 700 : 500, fontSize: 14, color: hasUnread ? '#F0EFEB' : 'rgba(240,239,235,0.82)', letterSpacing: '0.01em' }}>
+                          {row.name}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'rgba(240,239,235,0.28)', flexShrink: 0, marginLeft: 8 }}>
+                          {formatRelativeTime(row.lastAt)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontSize: 12, color: hasUnread ? 'rgba(240,239,235,0.6)' : 'rgba(240,239,235,0.32)',
+                          fontWeight: hasUnread ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0,
+                        }}>
+                          {row.lastContent ?? `${row.memberCount} member${row.memberCount !== 1 ? 's' : ''}`}
+                        </span>
+                        {hasUnread && (
+                          <div style={{
+                            background: '#FF5C00', borderRadius: 99, minWidth: 18, height: 18,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700, color: '#000', padding: '0 5px',
+                            flexShrink: 0, boxShadow: '0 0 8px rgba(255,92,0,0.4)',
+                          }}>
+                            {row.unreadCount}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.button>
+                )
+              }
+
+              const { partner, lastContent, lastAt, lastFromMe, unreadCount } = row.data
               const active = isActiveToday(partner.last_active)
               const initials = (partner.display_name ?? '?')
                 .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -270,7 +422,7 @@ export default function MessagesPage() {
 
               return (
                 <motion.button
-                  key={partner.id}
+                  key={row.key}
                   custom={i}
                   variants={fadeUp}
                   initial="hidden"

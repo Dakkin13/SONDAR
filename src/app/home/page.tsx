@@ -61,6 +61,14 @@ interface ProfileRow {
   influences: string[] | null
 }
 
+interface BandSummary {
+  id: string
+  name: string
+  avatar_url: string | null
+  memberCount: number
+  unreadCount: number
+}
+
 function greeting(): string {
   const h = new Date().getHours()
   if (h < 12) return 'Good morning'
@@ -105,6 +113,7 @@ export default function HomePage() {
   const [loading,           setLoading]           = useState(true)
   const [showCompleteModal, setShowCompleteModal] = useState(false)
   const [currentUserId,     setCurrentUserId]     = useState<string | null>(null)
+  const [myBands,           setMyBands]           = useState<BandSummary[]>([])
 
   async function refreshProfile(uid?: string) {
     const id = uid ?? currentUserId
@@ -141,6 +150,40 @@ export default function HomePage() {
         radius_km: 50,
       })
       if (nearby) setMusicians((nearby as NearbyMusician[]).filter(m => m.id !== user.id))
+
+      // ── Your Bands ──────────────────────────────────────────────────────
+      const { data: memberships } = await supabase
+        .from('band_members')
+        .select('band_id')
+        .eq('user_id', user.id)
+
+      const bandIds = (memberships ?? []).map(m => m.band_id)
+      if (bandIds.length > 0) {
+        const [{ data: bands }, { data: allMembers }, { data: recentMessages }] = await Promise.all([
+          supabase.from('bands').select('id, name, avatar_url').in('id', bandIds),
+          supabase.from('band_members').select('band_id').in('band_id', bandIds),
+          supabase.from('band_messages').select('band_id, from_id, read_by').in('band_id', bandIds),
+        ])
+
+        const memberCountMap = new Map<string, number>()
+        for (const m of allMembers ?? []) {
+          memberCountMap.set(m.band_id, (memberCountMap.get(m.band_id) ?? 0) + 1)
+        }
+        const unreadMap = new Map<string, number>()
+        for (const m of recentMessages ?? []) {
+          if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
+            unreadMap.set(m.band_id, (unreadMap.get(m.band_id) ?? 0) + 1)
+          }
+        }
+
+        setMyBands((bands ?? []).map(b => ({
+          id: b.id,
+          name: b.name,
+          avatar_url: b.avatar_url,
+          memberCount: memberCountMap.get(b.id) ?? 1,
+          unreadCount: unreadMap.get(b.id) ?? 0,
+        })))
+      }
 
       setLoading(false)
     }
@@ -339,6 +382,81 @@ export default function HomePage() {
             </div>
           </motion.div>
         )}
+
+        {/* ── Your Bands ── */}
+        <motion.div variants={fadeUp} className="mb-6">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">
+                Your bands
+              </p>
+            </div>
+            <button
+              onClick={() => router.push('/bands')}
+              className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.2)] bg-[rgba(255,92,0,0.06)] px-2.5 py-1 text-[10px] font-medium text-[rgba(255,92,0,0.75)] transition-all hover:border-[rgba(255,92,0,0.4)] hover:bg-[rgba(255,92,0,0.10)] hover:text-[#FF5C00]"
+            >
+              {myBands.length > 0 ? 'Show more →' : 'Create a band →'}
+            </button>
+          </div>
+          {myBands.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {myBands.slice(0, 3).map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => router.push(`/bands/${b.id}`)}
+                  className="glass-apple flex w-full items-center gap-3 px-4 py-3.5 text-left"
+                >
+                  {b.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={b.avatar_url} alt={b.name}
+                      className="h-9 w-9 flex-shrink-0 rounded-xl object-cover" />
+                  ) : (
+                    <div
+                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+                      style={{ background: 'rgba(255,92,0,0.10)', border: '1px solid rgba(255,92,0,0.15)' }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate text-[13px] leading-tight text-[#F0EFEB]"
+                      style={{ fontFamily: 'var(--font-bebas)', letterSpacing: '0.05em' }}>
+                      {b.name}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[rgba(240,239,235,0.38)]">
+                      {b.memberCount} member{b.memberCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  {b.unreadCount > 0 && (
+                    <span className="flex-shrink-0 rounded-full bg-[rgba(255,85,0,0.12)] px-2.5 py-1 text-[10px] font-semibold text-[#FF5500]">
+                      {b.unreadCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => router.push('/bands/new')}
+              className="glass-apple flex w-full items-center gap-3 px-4 py-3.5 text-left"
+            >
+              <div
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
+                style={{ background: 'rgba(255,92,0,0.10)', border: '1px solid rgba(255,92,0,0.15)' }}
+              >
+                <span className="text-base">🎸</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-[#F0EFEB]">Form a band</p>
+                <p className="mt-0.5 text-[11px] text-[rgba(240,239,235,0.38)]">Turn a conversation into a group chat</p>
+              </div>
+            </button>
+          )}
+        </motion.div>
 
         {/* ── Rehearsal spaces ── */}
         <motion.div variants={fadeUp} className="mb-6">
