@@ -437,7 +437,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0D0D0D]">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
       </div>
     )
@@ -456,7 +456,7 @@ export default function SettingsPage() {
         )}
       </AnimatePresence>
 
-      <div className="min-h-screen bg-[#0D0D0D] pb-32">
+      <div className="min-h-screen pb-32">
         {/* Error banner */}
         {error && (
           <div className="fixed left-0 right-0 top-0 z-40 bg-red-950 px-4 py-3 text-center">

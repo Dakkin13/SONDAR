@@ -299,7 +299,7 @@ export default function SpacesPage() {
   }))
 
   return (
-    <div style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
+    <div style={{ minHeight: '100dvh' }}>
 
       {/* Header */}
       <div

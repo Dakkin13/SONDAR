@@ -77,7 +77,6 @@ export default function WaitlistPage() {
   return (
     <div style={{
       minHeight: '100dvh',
-      background: '#0D0D0D',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',

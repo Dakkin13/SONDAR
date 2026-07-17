@@ -206,7 +206,7 @@ export default function MyProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center" style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
+      <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
       </div>
     )
@@ -214,7 +214,7 @@ export default function MyProfilePage() {
 
   if (!profile) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 text-[#F0EFEB]" style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
+      <div className="flex flex-col items-center justify-center gap-4 text-[#F0EFEB]" style={{ minHeight: '100dvh' }}>
         <p className="font-[family-name:var(--font-bebas)] text-3xl tracking-widest text-[rgba(240,239,235,0.3)]">
           NO PROFILE YET
         </p>

@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-bg: #0D0D0D;
+  --color-bg: #08080F;
   --color-fg: #F0EFEB;
-  --color-surface: #141414;
-  --color-surface-raised: #1C1C1C;
-  --color-border: rgba(240, 239, 235, 0.08);
-  --color-accent: #FF5500;
-  --color-accent-muted: rgba(255, 85, 0, 0.15);
-  --color-accent-glow: rgba(255, 85, 0, 0.35);
+  --color-surface: #0F0F1A;
+  --color-surface-raised: #16161F;
+  --color-border: rgba(240, 239, 235, 0.07);
+  --color-accent: #FF4D00;
+  --color-accent-muted: rgba(255, 77, 0, 0.14);
+  --color-accent-glow: rgba(255, 77, 0, 0.4);
   --color-muted: rgba(240, 239, 235, 0.45);
 
   --font-display: var(--font-bebas);
@@ -16,7 +16,8 @@
 }
 
 html {
-  background-color: #0D0D0D;
+  /* Option B: deep blue-black gradient instead of flat black */
+  background: #08080F;
   color: #F0EFEB;
   min-height: 100%;
   overflow-x: clip;
@@ -24,12 +25,19 @@ html {
 }
 
 body {
-  background-color: #0D0D0D;
   min-height: 100%;
   position: relative;
+  background: linear-gradient(
+    160deg,
+    #0A0A16 0%,
+    #08080F 35%,
+    #080810 65%,
+    #0A080E 100%
+  );
   /* Do NOT set overflow-x/y: hidden here — it breaks position:fixed on iOS Safari */
 }
 
+/* Subtle film grain — reduced opacity for cleaner look */
 body::after {
   content: '';
   position: fixed;
@@ -37,66 +45,69 @@ body::after {
   pointer-events: none;
   z-index: 9999;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-  opacity: 0.025;
+  opacity: 0.018;
 }
 
+/* Option A: Refined glass — less heavy blur, sharper borders, more subtle */
 .glass {
   position: relative;
   isolation: isolate;
-  border-radius: 20px;
-  -webkit-backdrop-filter: blur(40px) saturate(200%) brightness(1.05);
-  backdrop-filter: blur(40px) saturate(200%) brightness(1.05);
+  border-radius: 16px;
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   background: linear-gradient(
     135deg,
-    rgba(255,255,255,0.10) 0%,
-    rgba(255,255,255,0.04) 40%,
-    rgba(255,255,255,0.07) 100%
+    rgba(255,255,255,0.055) 0%,
+    rgba(255,255,255,0.02) 50%,
+    rgba(255,255,255,0.04) 100%
   );
-  border: 1px solid rgba(255,255,255,0.15);
-  border-top-color: rgba(255,255,255,0.30);
-  border-left-color: rgba(255,255,255,0.20);
-  border-right-color: rgba(255,255,255,0.07);
-  border-bottom-color: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-top-color: rgba(255,255,255,0.16);
+  border-left-color: rgba(255,255,255,0.11);
   box-shadow:
-    inset 0 1.5px 0 rgba(255,255,255,0.28),
-    inset 0 -1px 0 rgba(0,0,0,0.15),
-    inset 1px 0 0 rgba(255,255,255,0.12),
-    inset 0 0 20px -8px rgba(255,255,255,0.12),
-    0 8px 32px rgba(0,0,0,0.28),
-    0 2px 8px rgba(0,0,0,0.20),
-    0 0 0 0.5px rgba(255,255,255,0.06);
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 4px 24px rgba(0,0,0,0.35),
+    0 1px 4px rgba(0,0,0,0.25),
+    0 0 0 0.5px rgba(255,255,255,0.04);
 }
 
 .glass-apple {
-  background:
-    linear-gradient(
-      135deg,
-      rgba(255,255,255,0.12) 0%,
-      rgba(255,255,255,0.04) 50%,
-      rgba(255,255,255,0.08) 100%
-    );
-  -webkit-backdrop-filter: blur(48px) saturate(180%);
-  backdrop-filter: blur(48px) saturate(180%);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-bottom-color: rgba(255,255,255,0.06);
-  border-right-color: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.05);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  backdrop-filter: blur(32px) saturate(160%);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-bottom-color: rgba(255,255,255,0.04);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.20),
-    inset 0 -1px 0 rgba(0,0,0,0.10),
-    0 8px 32px rgba(0,0,0,0.24),
-    0 2px 8px rgba(0,0,0,0.16);
-  border-radius: 20px;
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    0 8px 32px rgba(0,0,0,0.30),
+    0 2px 8px rgba(0,0,0,0.20);
+  border-radius: 18px;
 }
 
 .glass-apple-subtle {
-  background: rgba(255,255,255,0.06);
-  -webkit-backdrop-filter: blur(32px) saturate(160%);
-  backdrop-filter: blur(32px) saturate(160%);
-  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255,255,255,0.08);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.12),
-    0 4px 16px rgba(0,0,0,0.18);
-  border-radius: 16px;
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 4px 16px rgba(0,0,0,0.22);
+  border-radius: 14px;
+}
+
+/* Option B: ambient gradient orb — reusable for depth across pages */
+.orb-orange {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(255,77,0,0.22) 0%, rgba(255,77,0,0.06) 45%, transparent 70%);
+  pointer-events: none;
+}
+
+.orb-indigo {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, rgba(99,60,220,0.18) 0%, rgba(99,60,220,0.05) 45%, transparent 70%);
+  pointer-events: none;
 }
 
 @keyframes sondar-ping {

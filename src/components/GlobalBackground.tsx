@@ -131,7 +131,7 @@ export default function GlobalBackground() {
       const dim = Math.min(w, h)
 
       // ── Background ──────────────────────────────────────────────────
-      ctx.fillStyle = '#0D0D0D'
+      ctx.fillStyle = '#08080F'
       ctx.fillRect(0, 0, w, h)
 
       // ── Resolve pixel positions & radii ─────────────────────────────

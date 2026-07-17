@@ -146,7 +146,7 @@ export default function MessagesPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
+    <div style={{ minHeight: '100dvh' }}>
       {/* Header */}
       <div
         className="sticky top-0 z-10 px-4 py-4"

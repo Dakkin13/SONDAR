@@ -362,22 +362,30 @@ export default function LandingPage() {
     <>
       <MarketingNav />
 
-      {/* ── Fixed ambient orbs , follow user through the whole page ───────── */}
+      {/* ── Fixed ambient orbs — Option B deep gradient depth ───────────── */}
       <div aria-hidden style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+        {/* Top-right: strong orange */}
         <div style={{
-          position: 'absolute', right: '-5%', top: '-5%',
-          width: 700, height: 700,
-          background: 'radial-gradient(circle at 70% 20%, rgba(255,85,0,0.22) 0%, rgba(255,85,0,0.08) 35%, transparent 65%)',
-          borderRadius: '50%',
-          transform: `translateY(${scrollY * 0.12}px)`,
+          position: 'absolute', right: '-10%', top: '-10%',
+          width: 800, height: 800,
+          background: 'radial-gradient(circle at 60% 30%, rgba(255,77,0,0.28) 0%, rgba(255,77,0,0.10) 40%, transparent 68%)',
+          transform: `translateY(${scrollY * 0.10}px)`,
           willChange: 'transform',
         }} />
+        {/* Bottom-left: deep indigo */}
         <div style={{
-          position: 'absolute', left: '-5%', bottom: '-5%',
-          width: 600, height: 600,
-          background: 'radial-gradient(circle at 25% 75%, rgba(91,33,182,0.20) 0%, rgba(91,33,182,0.07) 40%, transparent 65%)',
-          borderRadius: '50%',
-          transform: `translateY(${-scrollY * 0.08}px)`,
+          position: 'absolute', left: '-8%', bottom: '-8%',
+          width: 700, height: 700,
+          background: 'radial-gradient(circle at 30% 70%, rgba(99,60,220,0.22) 0%, rgba(99,60,220,0.07) 45%, transparent 68%)',
+          transform: `translateY(${-scrollY * 0.06}px)`,
+          willChange: 'transform',
+        }} />
+        {/* Center: very subtle warm tint */}
+        <div style={{
+          position: 'absolute', left: '50%', top: '40%',
+          width: 600, height: 400,
+          transform: `translate(-50%, -50%) translateY(${scrollY * 0.04}px)`,
+          background: 'radial-gradient(ellipse at center, rgba(255,100,0,0.04) 0%, transparent 65%)',
           willChange: 'transform',
         }} />
       </div>
@@ -388,105 +396,108 @@ export default function LandingPage() {
         <section className="relative flex flex-col items-center justify-center px-5 text-center"
           style={{ minHeight: '100dvh', paddingTop: 80, paddingBottom: 60 }}>
 
-          {/* Subtle hero-centre glow (not scrolled) */}
-          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ overflow: 'hidden' }}>
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ width: 800, height: 400, background: 'radial-gradient(ellipse at 50% 50%, rgba(255,85,0,0.05) 0%, transparent 60%)', borderRadius: '50%' }} />
-          </div>
-
           <motion.div variants={stagger(0.1)} initial={false} animate="show"
-            className="relative z-10 flex flex-col items-center gap-6 sm:gap-8">
+            className="relative z-10 flex flex-col items-center gap-7 sm:gap-9">
 
-            {/* Lozenge badge */}
+            {/* Badge */}
             <motion.div variants={fadeUp}
-              className="flex items-center gap-2 rounded-full border border-[rgba(255,85,0,0.25)] bg-[rgba(255,85,0,0.08)] px-4 py-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#FF5500]" style={{ boxShadow: '0 0 6px rgba(255,85,0,0.8)' }} />
-              <span className="text-[11px] font-medium tracking-[0.18em] text-[rgba(255,85,0,0.85)]">SONDAR · ACROSS EUROPE</span>
+              className="flex items-center gap-2.5 rounded-full px-4 py-1.5"
+              style={{
+                border: '1px solid rgba(255,77,0,0.30)',
+                background: 'rgba(255,77,0,0.08)',
+                backdropFilter: 'blur(12px)',
+              }}>
+              <span className="h-1.5 w-1.5 rounded-full bg-[#FF4D00]" style={{ boxShadow: '0 0 8px rgba(255,77,0,1)' }} />
+              <span className="text-[11px] font-semibold tracking-[0.20em] text-[rgba(255,120,60,0.9)]">SONDAR · ACROSS EUROPE</span>
             </motion.div>
 
-            {/* Headline */}
+            {/* Headline — Option A: bigger and bolder */}
             <motion.h1 variants={fadeUp}
-              className="leading-[0.92] tracking-[0.03em] text-[#F0EFEB]"
+              className="leading-[0.88] text-[#F0EFEB]"
               style={{
                 fontFamily: 'var(--font-bebas)',
-                fontSize: 'clamp(52px, 13vw, 110px)',
-                textShadow: '0 0 120px rgba(255,92,0,0.5), 0 0 280px rgba(255,92,0,0.2)',
+                fontSize: 'clamp(64px, 16vw, 140px)',
+                letterSpacing: '0.02em',
+                textShadow: '0 0 80px rgba(255,77,0,0.55), 0 0 200px rgba(255,77,0,0.18)',
               }}>
-              FIND YOUR PEOPLE.<br />MAKE NOISE.
+              FIND YOUR<br />PEOPLE.<br />
+              <span style={{ color: '#FF4D00' }}>MAKE NOISE.</span>
             </motion.h1>
 
             {/* Subtitle */}
             <motion.p variants={fadeUp}
-              className="max-w-[520px] text-base leading-relaxed text-[rgba(240,239,235,0.55)] sm:text-lg">
-              The app that connects musicians in the same city. Find your next bandmate,
+              className="max-w-[460px] text-[15px] leading-relaxed sm:text-lg"
+              style={{ color: 'rgba(240,239,235,0.52)' }}>
+              Connect with musicians in your city. Find your next bandmate,
               book a rehearsal space, and make it happen.
             </motion.p>
 
-            {/* CTAs */}
+            {/* CTAs — Option A: sharper, more confident */}
             <motion.div variants={fadeUp} className="flex flex-col items-center gap-3 sm:flex-row">
               <Link href={CTA_HREF}
-                className="flex items-center justify-center rounded-full bg-[#FF5500] px-8 py-3.5 text-base font-semibold text-black shadow-[0_0_40px_rgba(255,85,0,0.5)] transition-opacity hover:opacity-90">
-                Get started , it&apos;s free
+                className="flex items-center justify-center rounded-full text-base font-semibold text-black transition-all hover:scale-[1.03]"
+                style={{
+                  background: '#FF4D00',
+                  padding: '14px 36px',
+                  boxShadow: '0 0 0 1px rgba(255,77,0,0.5), 0 0 40px rgba(255,77,0,0.45), 0 8px 24px rgba(0,0,0,0.4)',
+                }}>
+                Get started — it&apos;s free
               </Link>
-              {/* Plain <a> link , no JS needed, works on all iOS versions */}
-              <a
-                href="#how-it-works"
-                className="flex items-center justify-center rounded-full border border-[rgba(240,239,235,0.15)] bg-[rgba(240,239,235,0.05)] px-8 py-3.5 text-base font-medium text-[rgba(240,239,235,0.75)] backdrop-blur-sm transition-colors hover:border-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
-                style={{ textDecoration: 'none' }}>
-                See how it works
+              <a href="#how-it-works"
+                className="flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-all hover:text-[#F0EFEB]"
+                style={{
+                  padding: '14px 28px',
+                  border: '1px solid rgba(240,239,235,0.12)',
+                  background: 'rgba(240,239,235,0.04)',
+                  color: 'rgba(240,239,235,0.6)',
+                  textDecoration: 'none',
+                  backdropFilter: 'blur(8px)',
+                }}>
+                How it works ↓
               </a>
             </motion.div>
 
-            {/* Scroll indicator , in normal flow so always visible on mobile too */}
-            <motion.div variants={fadeUp} className="flex flex-col items-center gap-2 pt-4">
-              <motion.button
-                onClick={scrollToHow}
+            {/* Scroll indicator */}
+            <motion.div variants={fadeUp} className="flex flex-col items-center gap-2 pt-2 pointer-events-none">
+              <motion.div
                 animate={{ y: [0, 10, 0] }}
                 transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-                className="flex flex-col items-center gap-2 cursor-pointer"
-                aria-label="Scroll to how it works"
-              >
-                <div className="h-10 w-px bg-gradient-to-b from-transparent to-[rgba(240,239,235,0.45)]" />
-                <div className="h-2 w-2 rotate-45 border-b-2 border-r-2 border-[rgba(240,239,235,0.55)]" />
-              </motion.button>
+                className="flex flex-col items-center gap-1.5">
+                <div className="h-12 w-px bg-gradient-to-b from-transparent to-[rgba(240,239,235,0.35)]" />
+                <div className="h-2 w-2 rotate-45 border-b-2 border-r-2 border-[rgba(240,239,235,0.4)]" />
+              </motion.div>
             </motion.div>
 
           </motion.div>
         </section>
 
         {/* ── How it works ──────────────────────────────────────────────────── */}
-        <section id="how-it-works" ref={howRef} className="px-5 py-14 sm:py-28" style={{ scrollMarginTop: 72 }}>
+        <section id="how-it-works" ref={howRef} className="px-5 py-20 sm:py-36" style={{ scrollMarginTop: 72 }}>
           <div className="mx-auto max-w-5xl">
-            <motion.p initial={{ opacity: 1, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.5 }}
-              className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[rgba(240,239,235,0.3)]">
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.30em] text-[rgba(240,239,235,0.28)]">
               How it works
-            </motion.p>
-            <motion.h2 initial={{ opacity: 1, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.5, delay: 0.05 }}
-              className="mb-12 leading-none tracking-[0.04em] text-[#F0EFEB]"
-              style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(36px, 7vw, 64px)' }}>
-              Three steps to your next jam
-            </motion.h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            </p>
+            <h2 className="mb-14 leading-[0.92] text-[#F0EFEB]"
+              style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(42px, 8vw, 76px)', letterSpacing: '0.03em' }}>
+              Three steps to<br />your next jam
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {HOW_IT_WORKS.map((item, i) => (
                 <motion.div key={item.num}
                   initial={{ opacity: 1, y: 24 }} whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, amount: 0.1 }}
-                  transition={{ duration: 0.5, delay: i * 0.1, ease: [0.16, 1, 0.3, 1] as const }}
-                  className="glass flex flex-col gap-4 p-5">
-                  <div className="flex items-center justify-between text-[9px] tracking-[0.22em] text-[rgba(240,239,235,0.28)]">
-                    <span>{item.num} / {item.tag}</span>
-                    <div className="flex gap-1">
-                      {[0, 1, 2].map(dot => (
-                        <span key={dot} className={`h-1 w-1 rounded-full ${dot === i ? 'bg-[#FF5C00]' : 'bg-[rgba(240,239,235,0.18)]'}`} />
-                      ))}
-                    </div>
+                  transition={{ duration: 0.5, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] as const }}
+                  className="glass flex flex-col gap-5 p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] tracking-[0.24em] text-[rgba(240,239,235,0.25)]">{item.num} / {item.tag}</span>
+                    <span className="text-[10px] font-bold text-[#FF4D00]" style={{ fontFamily: 'var(--font-bebas)', letterSpacing: '0.06em' }}>
+                      {['PROFILE', 'PROXIMITY', 'RESONANCE'][i]}
+                    </span>
                   </div>
-                  <div className="flex justify-center py-1"><item.Icon /></div>
-                  <div className="border-t border-[rgba(240,239,235,0.06)] pt-3">
-                    <p className="mb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-[rgba(240,239,235,0.7)]">{item.title}</p>
-                    <p className="text-[11px] text-[rgba(240,239,235,0.4)]">{item.body}</p>
+                  <div className="flex justify-center"><item.Icon /></div>
+                  <div className="border-t border-[rgba(240,239,235,0.06)] pt-4">
+                    <p className="mb-2 text-sm font-semibold text-[#F0EFEB]">{item.title}</p>
+                    <p className="text-[12px] leading-relaxed text-[rgba(240,239,235,0.42)]">{item.body}</p>
                   </div>
                 </motion.div>
               ))}
@@ -495,62 +506,59 @@ export default function LandingPage() {
         </section>
 
         {/* ── Profile card showcase ──────────────────────────────────────────── */}
-        <section className="relative flex flex-col items-center overflow-hidden px-5 py-14 sm:py-28">
+        <section className="relative flex flex-col items-center overflow-hidden px-5 py-20 sm:py-36">
           <div aria-hidden className="pointer-events-none absolute inset-0">
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ width: 600, height: 600, background: 'radial-gradient(circle, rgba(255,92,0,0.08) 0%, transparent 65%)', borderRadius: '50%' }} />
+              style={{ width: 700, height: 700, background: 'radial-gradient(circle, rgba(255,77,0,0.10) 0%, rgba(99,60,220,0.06) 45%, transparent 68%)', borderRadius: '50%' }} />
           </div>
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[rgba(240,239,235,0.3)]">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.30em] text-[rgba(240,239,235,0.28)]">
             Your profile
           </p>
-          <p className="mb-10 text-center leading-none tracking-[0.04em] text-[#F0EFEB]"
-            style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(32px, 6vw, 56px)' }}>
-            YOUR SOUND HAS A FACE.
-          </p>
-          <motion.div initial={{ opacity: 1, scale: 0.95, y: 20 }} whileInView={{ opacity: 1, scale: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] as const }}>
+          <h2 className="mb-12 text-center leading-[0.92] text-[#F0EFEB]"
+            style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(38px, 7vw, 68px)', letterSpacing: '0.03em' }}>
+            NOT A PROFILE.<br />A BACKSTAGE PASS.
+          </h2>
+          <motion.div initial={{ opacity: 1, scale: 0.96, y: 24 }} whileInView={{ opacity: 1, scale: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] as const }}>
             <ProfileShowcaseCard />
           </motion.div>
-          <p className="mt-6 text-center text-xs text-[rgba(240,239,235,0.3)]">
-            Your instruments, your vibe, your city , all in one card.
+          <p className="mt-8 text-center text-xs text-[rgba(240,239,235,0.28)]" style={{ letterSpacing: '0.06em' }}>
+            YOUR INSTRUMENTS · YOUR VIBE · YOUR CITY
           </p>
         </section>
 
         {/* ── About / mission ───────────────────────────────────────────────── */}
-        <section className="px-5 py-14 sm:py-28">
+        <section className="px-5 py-20 sm:py-36">
           <div className="mx-auto max-w-5xl">
-            <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-20">
+            <div className="grid grid-cols-1 gap-12 lg:grid-cols-2 lg:gap-24">
               <div>
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.28em] text-[rgba(240,239,235,0.3)]">
+                <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.30em] text-[rgba(240,239,235,0.28)]">
                   Why Sondar exists
                 </p>
-                <h2 className="mb-6 leading-none tracking-[0.04em] text-[#F0EFEB]"
-                  style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(32px, 6vw, 56px)' }}>
+                <h2 className="mb-7 leading-[0.92] text-[#F0EFEB]"
+                  style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(38px, 6vw, 64px)', letterSpacing: '0.03em' }}>
                   Cities are full of musicians who can&apos;t find each other
                 </h2>
-                <p className="text-base leading-relaxed text-[rgba(240,239,235,0.55)]">
+                <p className="text-[15px] leading-[1.75] text-[rgba(240,239,235,0.52)]">
                   Every city is full of musicians who can&apos;t find each other. Guitarists
                   looking for drummers. Producers looking for vocalists. Bands looking for
-                  a bassist. The tools to connect them have been broken for years , outdated
+                  a bassist. The tools to connect them have been broken for years — outdated
                   apps, dead Facebook groups, random luck.
                 </p>
-                <p className="mt-4 text-base leading-relaxed text-[rgba(240,239,235,0.55)]">
+                <p className="mt-5 text-[15px] font-semibold text-[rgba(240,239,235,0.75)]">
                   Sondar is the fix.
                 </p>
               </div>
               <div className="flex flex-col gap-3">
                 {STATS.map((s) => (
-                  <motion.div key={s.figure}
-                    initial={{ opacity: 1, x: 16 }} whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true, amount: 0.1 }}
-                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] as const }}
-                    className="glass p-5">
-                    <p className="font-[family-name:var(--font-bebas)] text-[42px] leading-none tracking-wide text-[#FF5500]">
+                  <div key={s.figure} className="glass p-5">
+                    <p className="font-[family-name:var(--font-bebas)] leading-none tracking-wide text-[#FF4D00]"
+                      style={{ fontSize: 'clamp(36px, 6vw, 48px)' }}>
                       {s.figure}
                     </p>
-                    <p className="mt-1 text-sm font-medium text-[rgba(240,239,235,0.75)]">{s.label}</p>
-                    <p className="mt-1.5 text-[10px] text-[rgba(240,239,235,0.25)]">{s.note}</p>
-                  </motion.div>
+                    <p className="mt-1.5 text-sm font-medium text-[rgba(240,239,235,0.72)]">{s.label}</p>
+                    <p className="mt-1 text-[10px] text-[rgba(240,239,235,0.22)]">{s.note}</p>
+                  </div>
                 ))}
               </div>
             </div>
@@ -589,34 +597,40 @@ export default function LandingPage() {
         </section>
 
         {/* ── Final CTA ─────────────────────────────────────────────────────── */}
-        <section className="relative flex flex-col items-center overflow-hidden px-5 py-20 text-center sm:py-36">
+        <section className="relative flex flex-col items-center overflow-hidden px-5 py-28 text-center sm:py-44">
           <div aria-hidden className="pointer-events-none absolute inset-0">
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ width: 800, height: 600, background: 'radial-gradient(ellipse, rgba(255,92,0,0.12) 0%, rgba(255,92,0,0.04) 40%, transparent 65%)', borderRadius: '50%' }} />
-            <div className="absolute bottom-0 right-0"
-              style={{ width: 400, height: 400, background: 'radial-gradient(circle at 80% 80%, rgba(91,33,182,0.12) 0%, transparent 60%)', borderRadius: '50%' }} />
+              style={{ width: 900, height: 600, background: 'radial-gradient(ellipse, rgba(255,77,0,0.16) 0%, rgba(99,60,220,0.06) 45%, transparent 68%)', borderRadius: '50%' }} />
           </div>
 
-          <motion.div initial={{ opacity: 1, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.1 }} transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] as const }}
-            className="relative z-10 flex flex-col items-center gap-7">
-            <div className="flex items-center gap-3">
-              <SondarSymbol size={36} />
-              <span className="text-[42px] leading-none tracking-[0.12em] text-[#F0EFEB]"
+          <div className="relative z-10 flex flex-col items-center gap-8">
+            <div className="flex items-center gap-3 opacity-60">
+              <SondarSymbol size={28} />
+              <span className="text-[28px] leading-none tracking-[0.14em] text-[#F0EFEB]"
                 style={{ fontFamily: 'var(--font-bebas)' }}>SONDAR</span>
             </div>
-            <h2 className="leading-[0.92] tracking-[0.03em] text-[#F0EFEB]"
-              style={{ fontFamily: 'var(--font-bebas)', fontSize: 'clamp(48px, 10vw, 96px)', textShadow: '0 0 80px rgba(255,92,0,0.35)' }}>
-              Ready to find<br />your people?
+            <h2 className="leading-[0.88] text-[#F0EFEB]"
+              style={{
+                fontFamily: 'var(--font-bebas)',
+                fontSize: 'clamp(56px, 12vw, 116px)',
+                letterSpacing: '0.02em',
+                textShadow: '0 0 60px rgba(255,77,0,0.45)',
+              }}>
+              READY TO FIND<br />YOUR PEOPLE?
             </h2>
             <Link href={CTA_HREF}
-              className="flex items-center justify-center rounded-full bg-[#FF5500] px-10 py-4 text-lg font-semibold text-black shadow-[0_0_40px_rgba(255,85,0,0.5)] transition-opacity hover:opacity-90">
-              Join Sondar , it&apos;s free
+              className="flex items-center justify-center rounded-full text-lg font-semibold text-black transition-all hover:scale-[1.03]"
+              style={{
+                background: '#FF4D00',
+                padding: '16px 44px',
+                boxShadow: '0 0 0 1px rgba(255,77,0,0.5), 0 0 50px rgba(255,77,0,0.5), 0 8px 32px rgba(0,0,0,0.4)',
+              }}>
+              Join Sondar — it&apos;s free
             </Link>
-            <p className="text-[11px] font-medium tracking-[0.22em] uppercase text-[rgba(240,239,235,0.2)]">
+            <p className="text-[10px] font-medium tracking-[0.26em] uppercase text-[rgba(240,239,235,0.18)]">
               Free · No algorithm · Just music
             </p>
-          </motion.div>
+          </div>
         </section>
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}

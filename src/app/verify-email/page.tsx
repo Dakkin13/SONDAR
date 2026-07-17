@@ -43,7 +43,7 @@ export default function VerifyEmailPage() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-5" style={{ background: '#0D0D0D' }}>
+    <main className="flex min-h-dvh items-center justify-center px-5">
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}

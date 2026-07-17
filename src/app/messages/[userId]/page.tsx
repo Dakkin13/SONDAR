@@ -432,7 +432,7 @@ export default function ChatPage() {
   const primaryInstrument = other?.instruments?.[0]
 
   return (
-    <div className="flex flex-col bg-[#0D0D0D]" style={{ height: '100dvh' }}>
+    <div className="flex flex-col" style={{ height: '100dvh' }}>
 
       {/* ── Connection overlay ─────────────────────────────────────────── */}
       <AnimatePresence>

@@ -644,29 +644,7 @@ export default function ExplorePage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="relative bg-[#0D0D0D]" style={{ minHeight: '100dvh' }}>
-      {/* Ambient orbs */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed right-0 top-0"
-        style={{
-          zIndex: -1,
-          width: 640,
-          height: 640,
-          background: 'radial-gradient(circle at top right, rgba(255,85,0,0.16) 0%, transparent 65%)',
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none fixed bottom-0 left-0"
-        style={{
-          zIndex: -1,
-          width: 520,
-          height: 520,
-          background: 'radial-gradient(circle at bottom left, rgba(91,33,182,0.14) 0%, transparent 65%)',
-        }}
-      />
-
+    <div className="relative" style={{ minHeight: '100dvh' }}>
       {/* ── Fixed top bar ── */}
       <div className="fixed left-0 right-0 top-0 z-20 px-3 pt-3 sm:px-4 sm:pt-4">
         <div

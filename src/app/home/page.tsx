@@ -149,7 +149,7 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center bg-[#0D0D0D]" style={{ minHeight: '100dvh' }}>
+      <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}>
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
       </div>
     )

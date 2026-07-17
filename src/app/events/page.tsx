@@ -163,7 +163,7 @@ export default function EventsPage() {
   const past = filtered.filter(e => !isUpcoming(e.date))
 
   return (
-    <div style={{ minHeight: '100dvh', background: '#0D0D0D' }}>
+    <div style={{ minHeight: '100dvh' }}>
       {/* Create event modal */}
       <AnimatePresence>
         {showCreate && (
