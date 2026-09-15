@@ -7,28 +7,20 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import { useCanHover } from '@/lib/hooks/useMediaQuery'
 import Avatar from '@/components/ui/Avatar'
-import type { Message, Profile } from '@/types'
+import MessageBubble, { type ReplyTarget } from '@/components/chat/MessageBubble'
+import ChatComposer from '@/components/chat/ChatComposer'
+import ImageLightbox from '@/components/chat/ImageLightbox'
+import { normalizeMessageRow, upsertMessage, isTempId, type DmMessage } from '@/lib/chat/types'
+import { toggleReaction } from '@/lib/chat/reactions'
+import { formatDayLabel, formatLastSeen, isGroupedWithPrevious, isSameDay } from '@/lib/chat/time'
+import { uploadChatImage } from '@/lib/chat/images'
+import { getDraft, setDraft } from '@/lib/chat/drafts'
+import { getErrorMessage } from '@/lib/utils'
+import type { Profile } from '@/types'
 
 type OtherProfile = Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'instruments' | 'last_active'>
-type ChatMessage = Message
-
-function formatBubbleTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDayLabel(iso: string): string {
-  const d = new Date(iso)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
-}
-
-function isSameDay(a: string, b: string) {
-  return new Date(a).toDateString() === new Date(b).toDateString()
-}
 
 function isActiveToday(lastActive: string | null | undefined): boolean {
   if (!lastActive) return false
@@ -41,18 +33,21 @@ const INSTRUMENT_EMOJI: Record<string, string> = {
   vocals: '🎤', producer: '🎚️', dj: '🎧', other: '🎵',
 }
 
+const NEAR_BOTTOM_PX = 120
+
 export default function ChatPage() {
   const { userId: otherUserId } = useParams<{ userId: string }>()
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
+  const canHover = useCanHover()
+  const draftKey = `dm-${otherUserId}`
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null)
   const [other, setOther] = useState<OtherProfile | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set())
-  const [likeAnimating, setLikeAnimating] = useState<string | null>(null)
+  const [otherOnline, setOtherOnline] = useState(false)
+  const [messages, setMessages] = useState<DmMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -61,19 +56,26 @@ export default function ChatPage() {
   const [showMenu, setShowMenu] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmBlock, setConfirmBlock] = useState(false)
+  const [replyTo, setReplyTo] = useState<DmMessage | null>(null)
+  const [editing, setEditing] = useState<DmMessage | null>(null)
+  const [attachment, setAttachment] = useState<{ file: File; previewUrl: string } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
   const currentUserIdRef = useRef<string | null>(null)
-  const sentIds = useRef(new Set<string>())
+  const listRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const nearBottomRef = useRef(true)
   const wasEmptyRef = useRef(true)
   const lastSentAtRef = useRef(0)
-  const lastTapRef = useRef<Record<string, number>>({})
+  const lastTypingSentRef = useRef(0)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typingChannelRef = useRef<any>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior })
@@ -104,6 +106,8 @@ export default function ChatPage() {
 
       setCurrentUserId(user.id)
       currentUserIdRef.current = user.id
+      setInput(getDraft(draftKey))
+      void supabase.rpc('touch_last_active')
 
       const [profileRes, myProfileRes, historyRes] = await Promise.all([
         supabase
@@ -111,24 +115,20 @@ export default function ChatPage() {
           .select('id, display_name, avatar_url, instruments, last_active')
           .eq('id', otherUserId)
           .single(),
-        supabase
-          .from('profiles')
-          .select('avatar_url')
-          .eq('id', user.id)
-          .single(),
+        supabase.from('profiles').select('avatar_url').eq('id', user.id).single(),
+        // select('*') so the page keeps working if the chat_features migration
+        // hasn't been applied yet — missing columns are just undefined.
         supabase
           .from('messages')
-          .select('id, from_id, to_id, content, created_at, read_at, liked_by')
-          .or(
-            `and(from_id.eq.${user.id},to_id.eq.${otherUserId}),and(from_id.eq.${otherUserId},to_id.eq.${user.id})`
-          )
+          .select('*')
+          .or(`and(from_id.eq.${user.id},to_id.eq.${otherUserId}),and(from_id.eq.${otherUserId},to_id.eq.${user.id})`)
           .order('created_at', { ascending: true }),
       ])
 
       if (profileRes.data) setOther(profileRes.data as OtherProfile)
       if (myProfileRes.data?.avatar_url) setCurrentUserAvatar(myProfileRes.data.avatar_url)
 
-      const history = (historyRes.data as ChatMessage[]) ?? []
+      const history = ((historyRes.data ?? []) as Record<string, unknown>[]).map(r => normalizeMessageRow<DmMessage>(r))
       let isFreshStart = false
       let deletedAt = 0
       try {
@@ -142,13 +142,6 @@ export default function ChatPage() {
           : history
       wasEmptyRef.current = filtered.length === 0
       setMessages(filtered)
-
-      // Seed liked set from history
-      const liked = new Set(
-        history.filter(m => (m.liked_by ?? []).includes(user.id)).map(m => m.id)
-      )
-      setLikedMessages(liked)
-
       setLoading(false)
 
       // Mark incoming as read
@@ -162,73 +155,45 @@ export default function ChatPage() {
     void init()
   }, [otherUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Scroll to bottom after initial load ──────────────────────────────────
   useEffect(() => {
     if (!loading) scrollToBottom('instant' as ScrollBehavior)
   }, [loading, scrollToBottom])
 
-  // ── Realtime — INSERT + UPDATE for messages + typing broadcast ────────────
+  // ── Realtime — INSERT / UPDATE / DELETE + typing + presence ──────────────
   useEffect(() => {
     if (!currentUserId) return
+    const myId = currentUserId
+
+    function inConversation(row: { from_id: string; to_id: string }) {
+      return (row.from_id === myId && row.to_id === otherUserId) || (row.from_id === otherUserId && row.to_id === myId)
+    }
 
     const channel = supabase
-      .channel(`chat-${currentUserId}-${otherUserId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as ChatMessage
-          const myId = currentUserIdRef.current
-          if (!myId) return
-          if (msg.from_id !== otherUserId || msg.to_id !== myId) return
-          if (sentIds.current.has(msg.id)) return
-
-          setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev
-            return [...prev, msg]
-          })
-
-          void supabase
-            .from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('id', msg.id)
-
-          scrollToBottom()
+      .channel(`chat-${myId}-${otherUserId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const msg = normalizeMessageRow<DmMessage>(payload.new as Record<string, unknown>)
+        if (!inConversation(msg)) return
+        // upsertMessage dedupes by id, so it's safe whether this echo lands
+        // before or after our own insert response.
+        setMessages(prev => upsertMessage(prev, msg))
+        if (msg.from_id === otherUserId) {
+          setOtherTyping(false)
+          void supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', msg.id)
+          if (nearBottomRef.current) setTimeout(() => scrollToBottom(), 30)
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
-        (payload) => {
-          // This fires when read_at is set (seen receipt) or liked_by changes
-          const updated = payload.new as ChatMessage
-          const myId = currentUserIdRef.current
-          if (!myId) return
-          const inConv =
-            (updated.from_id === myId && updated.to_id === otherUserId) ||
-            (updated.from_id === otherUserId && updated.to_id === myId)
-          if (!inConv) return
-
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === updated.id
-                ? { ...m, read_at: updated.read_at, liked_by: updated.liked_by ?? [] }
-                : m
-            )
-          )
-
-          // Keep liked set in sync
-          setLikedMessages(prev => {
-            const next = new Set(prev)
-            if ((updated.liked_by ?? []).includes(myId)) next.add(updated.id)
-            else next.delete(updated.id)
-            return next
-          })
-        }
-      )
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) => {
+        const updated = normalizeMessageRow<DmMessage>(payload.new as Record<string, unknown>)
+        if (!inConversation(updated)) return
+        setMessages(prev => (prev.some(m => m.id === updated.id) ? upsertMessage(prev, updated) : prev))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+        const id = (payload.old as { id?: string }).id
+        if (id) setMessages(prev => prev.filter(m => m.id !== id))
+      })
       .subscribe()
 
-    const convKey = [currentUserId, otherUserId].sort().join('-')
+    const convKey = [myId, otherUserId].sort().join('-')
     const typingCh = supabase
       .channel(`typing-${convKey}`)
       .on('broadcast', { event: 'typing' }, (payload) => {
@@ -238,28 +203,30 @@ export default function ChatPage() {
         typingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000)
       })
       .subscribe()
-
     typingChannelRef.current = typingCh
+
+    const presenceCh = supabase.channel(`presence-dm-${convKey}`, { config: { presence: { key: myId } } })
+    presenceCh
+      .on('presence', { event: 'sync' }, () => {
+        setOtherOnline(Boolean(presenceCh.presenceState()[otherUserId]))
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') void presenceCh.track({ online_at: new Date().toISOString() })
+      })
 
     return () => {
       void supabase.removeChannel(channel)
       void supabase.removeChannel(typingCh)
+      void supabase.removeChannel(presenceCh)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
   }, [currentUserId, otherUserId, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Scroll on new messages ────────────────────────────────────────────────
-  useEffect(() => {
-    if (messages.length > 0 && !loading) scrollToBottom()
-  }, [messages.length, loading, scrollToBottom])
 
   // ── Close menu on outside click ───────────────────────────────────────────
   useEffect(() => {
     if (!showMenu) return
     function handleOutside(e: MouseEvent | TouchEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false)
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false)
     }
     document.addEventListener('mousedown', handleOutside)
     document.addEventListener('touchstart', handleOutside)
@@ -269,105 +236,168 @@ export default function ChatPage() {
     }
   }, [showMenu])
 
-  // ── Double-tap like ───────────────────────────────────────────────────────
   useEscapeKey(showMenu || confirmDelete || confirmBlock, () => {
     setShowMenu(false)
     setConfirmDelete(false)
     setConfirmBlock(false)
   })
 
-  function handleMessageTap(msgId: string) {
-    if (msgId.startsWith('temp-')) return
+  useEffect(() => () => { if (attachment) URL.revokeObjectURL(attachment.previewUrl) }, [attachment])
+
+  function handleListScroll() {
+    const el = listRef.current
+    if (!el) return
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+  }
+
+  function handleInputChange(v: string) {
+    setInput(v)
+    if (!editing) setDraft(draftKey, v)
+  }
+
+  function handleTyping() {
     const now = Date.now()
-    const last = lastTapRef.current[msgId] ?? 0
-    if (now - last < 300) {
-      lastTapRef.current[msgId] = 0
-      void toggleLike(msgId)
-    } else {
-      lastTapRef.current[msgId] = now
+    if (now - lastTypingSentRef.current < 1000) return
+    lastTypingSentRef.current = now
+    void typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId } })
+  }
+
+  // ── Reactions / reply / edit / delete ─────────────────────────────────────
+  async function handleReact(msg: DmMessage, emoji: string) {
+    if (!currentUserId || isTempId(msg.id)) return
+    const next = toggleReaction(msg.reactions, emoji, currentUserId)
+    setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, reactions: next } : m)))
+    const { error } = await supabase.from('messages').update({ reactions: next }).eq('id', msg.id)
+    if (error) {
+      setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, reactions: msg.reactions } : m)))
+      toast(getErrorMessage(error, 'Could not react'), 'error')
     }
   }
 
-  async function toggleLike(msgId: string) {
-    if (!currentUserId) return
-    const isLiked = likedMessages.has(msgId)
-
-    setLikedMessages(prev => {
-      const next = new Set(prev)
-      if (isLiked) next.delete(msgId)
-      else next.add(msgId)
-      return next
-    })
-
-    if (!isLiked) {
-      setLikeAnimating(msgId)
-      setTimeout(() => setLikeAnimating(null), 700)
-    }
-
-    const msg = messages.find(m => m.id === msgId)
-    const currentLikes = msg?.liked_by ?? []
-    const newLikes = isLiked
-      ? currentLikes.filter(id => id !== currentUserId)
-      : [...currentLikes, currentUserId]
-
-    // Optimistically update local messages so like icon appears immediately
-    setMessages(prev =>
-      prev.map(m => m.id === msgId ? { ...m, liked_by: newLikes } : m)
-    )
-
-    await supabase.from('messages').update({ liked_by: newLikes }).eq('id', msgId)
+  function startReply(msg: DmMessage) {
+    setEditing(null)
+    setReplyTo(msg)
   }
 
-  // ── Send ─────────────────────────────────────────────────────────────────
-  const handleSend = async () => {
+  function startEdit(msg: DmMessage) {
+    setReplyTo(null)
+    setAttachment(null)
+    setEditing(msg)
+    setInput(msg.content)
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+    setInput(getDraft(draftKey))
+  }
+
+  async function handleDelete(msg: DmMessage) {
+    if (isTempId(msg.id)) return
+    const snapshot = msg
+    setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, deleted_at: new Date().toISOString(), content: '', image_url: null, reactions: {} } : m)))
+    const { error } = await supabase.from('messages').update({ deleted_at: new Date().toISOString() }).eq('id', msg.id)
+    if (error) {
+      setMessages(prev => prev.map(m => (m.id === msg.id ? snapshot : m)))
+      toast(getErrorMessage(error, 'Could not delete message'), 'error')
+    }
+  }
+
+  function jumpTo(id: string) {
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightedId(id)
+    setTimeout(() => setHighlightedId(null), 1400)
+  }
+
+  // ── Send / save edit ─────────────────────────────────────────────────────
+  async function handleSend() {
+    if (!currentUserId || sending) return
     const content = input.trim()
-    if (!content || !currentUserId || sending) return
+
+    if (editing) {
+      if (!content || content === editing.content) { cancelEdit(); return }
+      const target = editing
+      setSending(true)
+      setMessages(prev => prev.map(m => (m.id === target.id ? { ...m, content, edited_at: new Date().toISOString() } : m)))
+      cancelEdit()
+      const { error } = await supabase.from('messages').update({ content }).eq('id', target.id)
+      if (error) {
+        setMessages(prev => prev.map(m => (m.id === target.id ? target : m)))
+        toast(getErrorMessage(error, 'Could not edit message'), 'error')
+      }
+      setSending(false)
+      inputRef.current?.focus()
+      return
+    }
+
+    if (!content && !attachment) return
     const now = Date.now()
-    if (now - lastSentAtRef.current < 1500) return
+    if (now - lastSentAtRef.current < 800) return
     lastSentAtRef.current = now
 
     setSending(true)
-    setInput('')
+    const pendingAttachment = attachment
+    const pendingReply = replyTo
     const wasEmpty = wasEmptyRef.current
+    setInput('')
+    setDraft(draftKey, '')
+    setReplyTo(null)
+    setAttachment(null)
 
-    const tempId = `temp-${Date.now()}`
-    const tempMsg: ChatMessage = {
-      id: tempId,
-      from_id: currentUserId,
-      to_id: otherUserId,
-      content,
-      created_at: new Date().toISOString(),
-      read_at: null,
-      liked_by: [],
+    const tempId = `temp-${now}`
+    const tempMsg: DmMessage = {
+      id: tempId, from_id: currentUserId, to_id: otherUserId, content,
+      created_at: new Date(now).toISOString(), read_at: null,
+      reactions: {}, reply_to: pendingReply?.id ?? null,
+      image_url: pendingAttachment?.previewUrl ?? null, deleted_at: null, edited_at: null,
     }
-    setMessages(prev => [...prev, tempMsg])
-    scrollToBottom()
+    setMessages(prev => upsertMessage(prev, tempMsg))
+    setTimeout(() => scrollToBottom(), 30)
 
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({ from_id: currentUserId, to_id: otherUserId, content })
-      .select()
-      .single()
-
-    if (error) {
+    function rollback(err: unknown, fallback: string) {
       setMessages(prev => prev.filter(m => m.id !== tempId))
       setInput(content)
-      toast('Could not send message: ' + error.message, 'error')
-    } else if (data) {
-      sentIds.current.add((data as ChatMessage).id)
-      setMessages(prev => prev.map(m => m.id === tempId ? (data as ChatMessage) : m))
+      setReplyTo(pendingReply)
+      setAttachment(pendingAttachment)
+      toast(getErrorMessage(err, fallback), 'error')
+    }
+
+    let imageUrl: string | null = null
+    if (pendingAttachment) {
+      setUploading(true)
+      try {
+        imageUrl = await uploadChatImage(supabase, currentUserId, pendingAttachment.file)
+      } catch (err) {
+        setUploading(false)
+        setSending(false)
+        rollback(err, 'Could not upload photo')
+        return
+      }
+      setUploading(false)
+    }
+
+    // Only send the new columns when they carry a value, so plain text still
+    // works if the chat_features migration hasn't been applied yet.
+    const payload: Record<string, unknown> = { from_id: currentUserId, to_id: otherUserId, content }
+    if (imageUrl) payload.image_url = imageUrl
+    if (pendingReply) payload.reply_to = pendingReply.id
+
+    const { data, error } = await supabase.from('messages').insert(payload).select().single()
+
+    if (error || !data) {
+      rollback(error, 'Could not send message')
+    } else {
+      const saved = normalizeMessageRow<DmMessage>(data as Record<string, unknown>)
+      setMessages(prev => upsertMessage(prev, saved, tempId))
+      if (pendingAttachment) URL.revokeObjectURL(pendingAttachment.previewUrl)
 
       if (wasEmpty) {
         wasEmptyRef.current = false
         setShowConnection(true)
         setTimeout(() => setShowConnection(false), 3600)
-        // Clear fresh-start flag, update cutoff to just before this message, unhide from inbox
         try {
-          const newMsgTime = new Date((data as ChatMessage).created_at).getTime()
+          const newMsgTime = new Date(saved.created_at).getTime()
           localStorage.removeItem(`conv_fresh_start_${otherUserId}`)
-          if (newMsgTime > 0) {
-            localStorage.setItem(`conv_deleted_at_${otherUserId}`, (newMsgTime - 1).toString())
-          }
+          if (newMsgTime > 0) localStorage.setItem(`conv_deleted_at_${otherUserId}`, (newMsgTime - 1).toString())
           localStorage.removeItem(`hidden_conv_${otherUserId}`)
         } catch { /* ignore */ }
       }
@@ -377,23 +407,17 @@ export default function ChatPage() {
     inputRef.current?.focus()
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !sending) {
-      e.preventDefault()
-      void handleSend()
-    }
+  function handleAttach(file: File) {
+    if (!file.type.startsWith('image/')) { toast('Only images can be attached', 'error'); return }
+    setEditing(null)
+    setAttachment({ file, previewUrl: URL.createObjectURL(file) })
+    inputRef.current?.focus()
   }
 
   // ── Delete conversation ───────────────────────────────────────────────────
   async function handleDeleteConversation() {
     if (!currentUserId) return
-    // Delete messages I sent
-    await supabase
-      .from('messages')
-      .delete()
-      .eq('from_id', currentUserId)
-      .eq('to_id', otherUserId)
-    // Hide the conversation in the inbox (their messages I can't delete via RLS)
+    await supabase.from('messages').delete().eq('from_id', currentUserId).eq('to_id', otherUserId)
     try {
       localStorage.setItem(`hidden_conv_${otherUserId}`, '1')
       localStorage.setItem(`conv_deleted_at_${otherUserId}`, Date.now().toString())
@@ -403,14 +427,12 @@ export default function ChatPage() {
     router.push('/messages')
   }
 
-  // ── Block user ────────────────────────────────────────────────────────────
   function handleBlock() {
     try { localStorage.setItem(`blocked_${otherUserId}`, '1') } catch { /* ignore */ }
     toast(`${other?.display_name ?? 'User'} has been blocked`, 'default')
     router.push('/messages')
   }
 
-  // ── Report user ───────────────────────────────────────────────────────────
   function handleReport() {
     const subject = encodeURIComponent(`Report user: ${otherUserId}`)
     const body = encodeURIComponent(
@@ -420,13 +442,31 @@ export default function ChatPage() {
     setShowMenu(false)
   }
 
+  // ── Derived ───────────────────────────────────────────────────────────────
   const active = isActiveToday(other?.last_active)
-  const initials = (other?.display_name ?? '?')
-    .split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  const initials = (other?.display_name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   const primaryInstrument = other?.instruments?.[0]
+  const presenceLabel = otherOnline ? 'online' : formatLastSeen(other?.last_active)
+  const subtitle = [
+    primaryInstrument ? `${INSTRUMENT_EMOJI[primaryInstrument] ?? '🎵'} ${primaryInstrument}` : null,
+    presenceLabel,
+  ].filter(Boolean).join(' · ')
+
+  const byId = new Map(messages.map(m => [m.id, m]))
+  function replyTargetFor(msg: DmMessage): ReplyTarget | null {
+    if (!msg.reply_to) return null
+    const t = byId.get(msg.reply_to)
+    if (!t) return { id: msg.reply_to, senderName: null, content: '', image_url: null, deleted: false, unavailable: true }
+    return {
+      id: t.id,
+      senderName: t.from_id === currentUserId ? 'You' : (other?.display_name ?? null),
+      content: t.content, image_url: t.image_url, deleted: t.deleted_at !== null,
+    }
+  }
 
   return (
     <div className="flex flex-col" style={{ height: '100dvh' }}>
+      <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
 
       {/* ── Connection overlay ─────────────────────────────────────────── */}
       <AnimatePresence>
@@ -446,7 +486,6 @@ export default function ChatPage() {
               cursor: 'pointer',
             }}
           >
-            {/* Orange orb — sweeps in from right, fills half the screen */}
             <motion.div
               aria-hidden
               initial={{ x: 480, opacity: 0.5 }}
@@ -461,8 +500,6 @@ export default function ChatPage() {
                 pointerEvents: 'none',
               }}
             />
-
-            {/* Violet orb — sweeps in from left */}
             <motion.div
               aria-hidden
               initial={{ x: -480, opacity: 0.5 }}
@@ -477,8 +514,6 @@ export default function ChatPage() {
                 pointerEvents: 'none',
               }}
             />
-
-            {/* Impact bloom — bright white-gold burst at collision point */}
             <motion.div
               aria-hidden
               initial={{ scale: 0, opacity: 0 }}
@@ -493,8 +528,6 @@ export default function ChatPage() {
                 pointerEvents: 'none',
               }}
             />
-
-            {/* Expanding ring at impact */}
             <motion.div
               aria-hidden
               initial={{ scale: 0, opacity: 0 }}
@@ -509,13 +542,8 @@ export default function ChatPage() {
               }}
             />
 
-            {/* Content */}
             <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-
-              {/* Avatar pair */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 30, marginBottom: 52 }}>
-
-                {/* Other person — orange glow */}
                 <motion.div
                   initial={{ x: -70, opacity: 0, scale: 0.55 }}
                   animate={{ x: 0, opacity: 1, scale: 1 }}
@@ -529,12 +557,8 @@ export default function ChatPage() {
                   }}
                 >
                   {other?.avatar_url ? (
-                    <Image
-                      src={other.avatar_url}
-                      alt={other.display_name ?? ''}
-                      width={82} height={82}
-                      style={{ objectFit: 'cover', width: '100%', height: '100%' }}
-                    />
+                    <Image src={other.avatar_url} alt={other.display_name ?? ''} width={82} height={82}
+                      style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 28, color: 'rgba(255,85,0,0.9)' }}>
@@ -544,7 +568,6 @@ export default function ChatPage() {
                   )}
                 </motion.div>
 
-                {/* Connection spark — pops at impact */}
                 <motion.div
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: [0, 2.4, 1], opacity: [0, 1, 1] }}
@@ -557,7 +580,6 @@ export default function ChatPage() {
                   }}
                 />
 
-                {/* Current user — violet glow */}
                 <motion.div
                   initial={{ x: 70, opacity: 0, scale: 0.55 }}
                   animate={{ x: 0, opacity: 1, scale: 1 }}
@@ -571,12 +593,8 @@ export default function ChatPage() {
                   }}
                 >
                   {currentUserAvatar ? (
-                    <Image
-                      src={currentUserAvatar}
-                      alt="You"
-                      width={82} height={82}
-                      style={{ objectFit: 'cover', width: '100%', height: '100%' }}
-                    />
+                    <Image src={currentUserAvatar} alt="You" width={82} height={82}
+                      style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
                   ) : (
                     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 20, color: 'rgba(139,92,246,0.9)' }}>YOU</span>
@@ -585,7 +603,6 @@ export default function ChatPage() {
                 </motion.div>
               </div>
 
-              {/* Text */}
               <motion.p
                 initial={{ opacity: 0, y: 24, scale: 0.82 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -619,40 +636,26 @@ export default function ChatPage() {
       <AnimatePresence>
         {confirmDelete && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setConfirmDelete(false)}
           >
             <motion.div
-              initial={{ y: 60, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 60, opacity: 0 }}
+              initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', damping: 28, stiffness: 340 }}
               className="w-full max-w-lg md:max-w-2xl rounded-t-3xl p-6"
               style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
               onClick={e => e.stopPropagation()}
             >
-              <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
-                DELETE CONVERSATION?
-              </p>
+              <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">DELETE CONVERSATION?</p>
               <p className="mt-2 text-sm text-[rgba(240,239,235,0.5)] leading-relaxed">
                 This removes the conversation from your inbox. The other person can still see their messages.
               </p>
               <div className="mt-5 flex flex-col gap-2">
-                <button
-                  onClick={() => { setConfirmDelete(false); void handleDeleteConversation() }}
-                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white"
-                >
-                  Delete
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]"
-                >
-                  Cancel
-                </button>
+                <button onClick={() => { setConfirmDelete(false); void handleDeleteConversation() }}
+                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white">Delete</button>
+                <button onClick={() => setConfirmDelete(false)}
+                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]">Cancel</button>
               </div>
             </motion.div>
           </motion.div>
@@ -663,16 +666,12 @@ export default function ChatPage() {
       <AnimatePresence>
         {confirmBlock && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setConfirmBlock(false)}
           >
             <motion.div
-              initial={{ y: 60, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 60, opacity: 0 }}
+              initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', damping: 28, stiffness: 340 }}
               className="w-full max-w-lg md:max-w-2xl rounded-t-3xl p-6"
               style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -685,18 +684,10 @@ export default function ChatPage() {
                 They won&apos;t be able to message you and you won&apos;t see them in Explore.
               </p>
               <div className="mt-5 flex flex-col gap-2">
-                <button
-                  onClick={() => { setConfirmBlock(false); handleBlock() }}
-                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white"
-                >
-                  Block
-                </button>
-                <button
-                  onClick={() => setConfirmBlock(false)}
-                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]"
-                >
-                  Cancel
-                </button>
+                <button onClick={() => { setConfirmBlock(false); handleBlock() }}
+                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white">Block</button>
+                <button onClick={() => setConfirmBlock(false)}
+                  className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]">Cancel</button>
               </div>
             </motion.div>
           </motion.div>
@@ -716,7 +707,6 @@ export default function ChatPage() {
         }}
       >
         <div className="mx-auto flex max-w-lg md:max-w-2xl items-center gap-3">
-          {/* Back */}
           <button
             onClick={() => router.push('/messages')}
             onTouchEnd={(e) => { e.preventDefault(); router.push('/messages') }}
@@ -727,34 +717,19 @@ export default function ChatPage() {
             ‹
           </button>
 
-          {/* Avatar */}
-          <button
-            onClick={() => router.push(`/profile/${otherUserId}`)}
-            className="flex-shrink-0 relative"
-          >
-            {other?.avatar_url ? (
-              <Image
-                src={other.avatar_url}
-                alt={other.display_name ?? 'User'}
-                width={38}
-                height={38}
-                style={{
-                  width: 38, height: 38, borderRadius: '50%', objectFit: 'cover',
-                  border: active ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)',
-                }}
-              />
-            ) : (
-              <div
-                className="flex items-center justify-center"
-                style={{ width: 38, height: 38, borderRadius: '50%', background: '#1a1a1a',
-                  border: '2px solid rgba(240,239,235,0.1)' }}
-              >
-                <span className="font-[family-name:var(--font-bebas)] text-sm text-[rgba(240,239,235,0.4)]">
-                  {initials}
-                </span>
-              </div>
-            )}
-            {active && (
+          <button onClick={() => router.push(`/profile/${otherUserId}`)} className="flex-shrink-0 relative">
+            <Avatar
+              src={other?.avatar_url}
+              alt={other?.display_name ?? 'User'}
+              size={38}
+              border={other?.avatar_url
+                ? (active || otherOnline ? '2px solid rgba(255,92,0,0.7)' : '2px solid rgba(240,239,235,0.15)')
+                : '2px solid rgba(240,239,235,0.1)'}
+              background="#1a1a1a"
+            >
+              <span className="font-[family-name:var(--font-bebas)] text-sm text-[rgba(240,239,235,0.4)]">{initials}</span>
+            </Avatar>
+            {(otherOnline || active) && (
               <span style={{
                 position: 'absolute', bottom: 0, right: 0,
                 width: 10, height: 10, borderRadius: '50%',
@@ -763,23 +738,15 @@ export default function ChatPage() {
             )}
           </button>
 
-          {/* Name + instrument */}
-          <button
-            onClick={() => router.push(`/profile/${otherUserId}`)}
-            className="min-w-0 flex-1 text-left"
-          >
+          <button onClick={() => router.push(`/profile/${otherUserId}`)} className="min-w-0 flex-1 text-left">
             <p className="truncate font-[family-name:var(--font-bebas)] text-xl tracking-widest text-[#F0EFEB]">
               {other?.display_name?.toUpperCase() ?? 'LOADING…'}
             </p>
-            <p className="text-[11px] text-[rgba(240,239,235,0.35)]">
-              {primaryInstrument
-                ? `${INSTRUMENT_EMOJI[primaryInstrument] ?? '🎵'} ${primaryInstrument}`
-                : active ? 'Active today' : ''}
-              {active && primaryInstrument ? ' · Active today' : ''}
+            <p className="truncate text-[11px]" style={{ color: otherOnline ? '#34d399' : 'rgba(240,239,235,0.35)' }}>
+              {subtitle}
             </p>
           </button>
 
-          {/* ⋮ menu */}
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
               onClick={() => setShowMenu(v => !v)}
@@ -799,57 +766,25 @@ export default function ChatPage() {
                   exit={{ opacity: 0, y: -6, scale: 0.96 }}
                   transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
                   style={{
-                    position: 'absolute', top: 36, right: 0,
-                    width: 200,
-                    background: 'rgb(22,22,22)',
-                    border: '1px solid rgba(255,255,255,0.10)',
-                    borderRadius: 14,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-                    overflow: 'hidden',
-                    zIndex: 100,
+                    position: 'absolute', top: 36, right: 0, width: 200,
+                    background: 'rgb(22,22,22)', border: '1px solid rgba(255,255,255,0.10)',
+                    borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.6)', overflow: 'hidden', zIndex: 100,
                   }}
                 >
                   {[
-                    {
-                      label: 'View profile',
-                      icon: '👤',
-                      action: () => { setShowMenu(false); router.push(`/profile/${otherUserId}`) },
-                      danger: false,
-                    },
-                    {
-                      label: 'Delete conversation',
-                      icon: '🗑️',
-                      action: () => { setShowMenu(false); setConfirmDelete(true) },
-                      danger: false,
-                    },
-                    {
-                      label: 'Report user',
-                      icon: '🚩',
-                      action: () => handleReport(),
-                      danger: false,
-                    },
-                    {
-                      label: 'Block user',
-                      icon: '🚫',
-                      action: () => { setShowMenu(false); setConfirmBlock(true) },
-                      danger: true,
-                    },
-                  ].map((item, i, arr) => (
+                    { label: 'View profile', icon: '👤', action: () => { setShowMenu(false); router.push(`/profile/${otherUserId}`) }, danger: false },
+                    { label: 'Delete conversation', icon: '🗑️', action: () => { setShowMenu(false); setConfirmDelete(true) }, danger: false },
+                    { label: 'Report user', icon: '🚩', action: () => handleReport(), danger: false },
+                    { label: 'Block user', icon: '🚫', action: () => { setShowMenu(false); setConfirmBlock(true) }, danger: true },
+                  ].map((item, i) => (
                     <button
                       key={item.label}
                       onClick={item.action}
                       style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '11px 14px',
-                        background: 'none',
-                        border: 'none',
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '11px 14px', background: 'none', border: 'none',
                         borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontSize: 13,
+                        cursor: 'pointer', textAlign: 'left', fontSize: 13,
                         color: item.danger ? '#ef4444' : 'rgba(240,239,235,0.8)',
                         WebkitTapHighlightColor: 'transparent',
                       }}
@@ -866,7 +801,7 @@ export default function ChatPage() {
       </div>
 
       {/* ── Messages list ──────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={listRef} onScroll={handleListScroll} className="flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto max-w-lg md:max-w-2xl">
           {loading ? (
             <div className="flex items-center justify-center py-24">
@@ -874,7 +809,6 @@ export default function ChatPage() {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-16 text-center">
-              {/* Avatar */}
               <Avatar
                 src={other?.avatar_url}
                 alt={other?.display_name ?? ''}
@@ -891,160 +825,78 @@ export default function ChatPage() {
                 <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
                   {(other?.display_name ?? 'MUSICIAN').toUpperCase()}
                 </p>
-                {primaryInstrument && (
-                  <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.35)]">
-                    {INSTRUMENT_EMOJI[primaryInstrument] ?? '🎵'} {primaryInstrument} · {active ? 'Active today' : 'Offline'}
-                  </p>
-                )}
+                {subtitle && <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.35)]">{subtitle}</p>}
               </div>
-              <div
-                style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 14,
-                  padding: '12px 20px',
-                  maxWidth: 280,
-                }}
-              >
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 20px', maxWidth: 280 }}>
                 <p className="text-xs leading-relaxed text-[rgba(240,239,235,0.4)]">
                   Say hi and tell them what you&apos;re working on 🎵
                 </p>
               </div>
             </div>
           ) : (
-            <AnimatePresence initial={false}>
-              {messages.map((msg, i) => {
-                const isMine = msg.from_id === currentUserId
-                const showDay = i === 0 || !isSameDay(messages[i - 1].created_at, msg.created_at)
-                const isTemp = msg.id.startsWith('temp-')
-                const isLiked = likedMessages.has(msg.id) || (msg.liked_by ?? []).length > 0
-                const isAnimating = likeAnimating === msg.id
-
-                // Only show heart if this message was liked by someone
-                const likedByOther = (msg.liked_by ?? []).some(id => id !== currentUserId)
-                const likedByMe = likedMessages.has(msg.id)
-
-                return (
-                  <div key={msg.id}>
-                    {showDay && (
-                      <div className="my-4 flex items-center gap-3">
-                        <div className="h-px flex-1 bg-[rgba(240,239,235,0.06)]" />
-                        <span className="text-[10px] font-medium text-[rgba(240,239,235,0.25)]">
-                          {formatDayLabel(msg.created_at)}
-                        </span>
-                        <div className="h-px flex-1 bg-[rgba(240,239,235,0.06)]" />
-                      </div>
-                    )}
-
-                    <div
-                      className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                      onClick={() => handleMessageTap(msg.id)}
-                      style={{ cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-                    >
-                      <div style={{ position: 'relative', maxWidth: '75%' }}>
-                        <motion.div
-                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                          animate={{ opacity: isTemp ? 0.65 : 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
-                        >
-                          <div
-                            className="px-4 py-2.5"
-                            style={{
-                              background: isMine ? '#FF5500' : 'rgba(255,255,255,0.09)',
-                              backdropFilter: isMine ? 'none' : 'blur(20px)',
-                              WebkitBackdropFilter: isMine ? 'none' : 'blur(20px)',
-                              border: isMine ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                              borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                              color: isMine ? '#000' : '#F0EFEB',
-                            }}
-                          >
-                            <p className="text-sm leading-relaxed">{msg.content}</p>
-                          </div>
-                        </motion.div>
-
-                        {/* Timestamp + seen + like row */}
-                        <div className={`mt-0.5 flex items-center gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          {/* Like shown on received messages (liked by me) */}
-                          {!isMine && likedByMe && (
-                            <span style={{ fontSize: 10 }}>❤️</span>
-                          )}
-
-                          <span className="text-[9px] text-[rgba(240,239,235,0.22)]">
-                            {formatBubbleTime(msg.created_at)}
-                          </span>
-
-                          {/* Seen receipt on sent messages */}
-                          {isMine && !isTemp && (
-                            <span
-                              className="text-[9px] font-medium"
-                              style={{ color: msg.read_at ? '#FF5C00' : 'rgba(240,239,235,0.28)' }}
-                              title={msg.read_at ? 'Seen' : 'Sent'}
-                            >
-                              {msg.read_at ? '✓✓' : '✓'}
-                            </span>
-                          )}
-
-                          {/* Like shown on sent messages (liked by other) */}
-                          {isMine && likedByOther && (
-                            <span style={{ fontSize: 10 }}>❤️</span>
-                          )}
-                        </div>
-
-                        {/* Floating heart animation on double-tap */}
-                        <AnimatePresence>
-                          {isAnimating && (
-                            <motion.span
-                              initial={{ opacity: 1, y: 0, scale: 1 }}
-                              animate={{ opacity: 0, y: -48, scale: 1.8 }}
-                              exit={{}}
-                              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] as const }}
-                              style={{
-                                position: 'absolute',
-                                top: '50%', left: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                fontSize: 22, pointerEvents: 'none', zIndex: 10,
-                              }}
-                            >
-                              ❤️
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </div>
+            messages.map((msg, i) => {
+              const prev = messages[i - 1]
+              const next = messages[i + 1]
+              const showDay = !prev || !isSameDay(prev.created_at, msg.created_at)
+              const showTime = !next || !isGroupedWithPrevious(msg, next)
+              return (
+                <div key={msg.id}>
+                  {showDay && (
+                    <div className="sticky top-0 z-[5] my-3 flex justify-center">
+                      <span
+                        className="rounded-full px-3 py-1 text-[10px] font-medium text-[rgba(240,239,235,0.45)]"
+                        style={{ background: 'rgba(13,13,13,0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.06)' }}
+                      >
+                        {formatDayLabel(msg.created_at)}
+                      </span>
                     </div>
-                  </div>
-                )
-              })}
-            </AnimatePresence>
+                  )}
+                  <MessageBubble
+                    msg={msg}
+                    currentUserId={currentUserId ?? ''}
+                    isMine={msg.from_id === currentUserId}
+                    isTemp={isTempId(msg.id)}
+                    showTime={showTime}
+                    replyTarget={replyTargetFor(msg)}
+                    canHover={canHover}
+                    highlighted={highlightedId === msg.id}
+                    receipt={
+                      <span
+                        className="text-[9px] font-medium"
+                        style={{ color: msg.read_at ? '#FF5C00' : 'rgba(240,239,235,0.28)' }}
+                        title={msg.read_at ? 'Seen' : 'Sent'}
+                      >
+                        {msg.read_at ? '✓✓' : '✓'}
+                      </span>
+                    }
+                    onReply={m => startReply(m as DmMessage)}
+                    onReact={(m, emoji) => void handleReact(m as DmMessage, emoji)}
+                    onEdit={m => startEdit(m as DmMessage)}
+                    onDelete={m => void handleDelete(m as DmMessage)}
+                    onImageClick={setLightboxUrl}
+                    onJumpTo={jumpTo}
+                  />
+                </div>
+              )
+            })
           )}
 
-          {/* Typing indicator */}
           <AnimatePresence>
             {otherTyping && (
               <motion.div
                 key="typing"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.2 }}
                 className="mb-2 flex justify-start"
               >
-                <div
-                  className="px-4 py-3"
-                  style={{
-                    background: 'rgba(255,255,255,0.09)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: '18px 18px 18px 4px',
-                  }}
-                >
+                <div className="px-4 py-3" style={{
+                  background: 'rgba(255,255,255,0.09)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255,255,255,0.12)', borderRadius: '18px 18px 18px 4px',
+                }}>
                   <div className="flex items-center gap-1">
                     {[0, 150, 300].map(delay => (
-                      <span
-                        key={delay}
-                        className="animate-bounce rounded-full bg-[rgba(240,239,235,0.4)]"
-                        style={{ width: 6, height: 6, animationDelay: `${delay}ms` }}
-                      />
+                      <span key={delay} className="animate-bounce rounded-full bg-[rgba(240,239,235,0.4)]"
+                        style={{ width: 6, height: 6, animationDelay: `${delay}ms` }} />
                     ))}
                   </div>
                 </div>
@@ -1056,73 +908,26 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* ── Input bar ──────────────────────────────────────────────────── */}
-      <div
-        className="flex-shrink-0 px-4 pt-3"
-        style={{
-          background: 'rgba(13,13,13,0.92)',
-          backdropFilter: 'blur(48px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(48px) saturate(180%)',
-          borderTop: '0.5px solid rgba(255,255,255,0.08)',
-          paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        }}
-      >
-        <div className="mx-auto flex max-w-lg md:max-w-2xl items-end gap-3">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={e => {
-              setInput(e.target.value)
-              void typingChannelRef.current?.send({
-                type: 'broadcast', event: 'typing',
-                payload: { userId: currentUserId },
-              })
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Message…"
-            rows={1}
-            className="flex-1 resize-none text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.25)] outline-none"
-            style={{
-              background: 'rgba(255,255,255,0.07)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              borderRadius: 20,
-              padding: '10px 16px',
-              maxHeight: 120,
-              overflowY: 'auto',
-            }}
-            onInput={e => {
-              const el = e.currentTarget
-              el.style.height = 'auto'
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-            }}
-          />
-          <motion.button
-            onClick={() => { try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
-            onTouchEnd={(e) => { e.preventDefault(); try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
-            disabled={!input.trim() || sending}
-            whileHover={{ scale: 1.06 }}
-            whileTap={{ scale: 0.92 }}
-            style={{
-              flexShrink: 0,
-              width: 38, height: 38,
-              borderRadius: '50%',
-              background: input.trim() ? '#FF5500' : 'rgba(255,255,255,0.08)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: input.trim() ? '0 0 12px rgba(255,85,0,0.35)' : 'none',
-              transition: 'background 0.2s, box-shadow 0.2s',
-            }}
-            aria-label="Send"
-          >
-            <svg viewBox="0 0 24 24" fill="none" style={{ width: 18, height: 18 }}
-              stroke={input.trim() ? '#000' : 'rgba(240,239,235,0.3)'} strokeWidth={2.5}>
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none"
-                style={{ color: input.trim() ? '#000' : 'rgba(240,239,235,0.3)' }} />
-            </svg>
-          </motion.button>
-        </div>
-      </div>
-
+      <ChatComposer
+        value={input}
+        onChange={handleInputChange}
+        onSend={() => void handleSend()}
+        onTyping={handleTyping}
+        sending={sending}
+        keyboardOffset={keyboardOffset}
+        inputRef={inputRef}
+        onAttach={handleAttach}
+        attachment={attachment ? { previewUrl: attachment.previewUrl } : null}
+        onRemoveAttachment={() => setAttachment(null)}
+        uploading={uploading}
+        replyTo={replyTo ? {
+          senderName: replyTo.from_id === currentUserId ? 'You' : (other?.display_name ?? null),
+          content: replyTo.content, image_url: replyTo.image_url,
+        } : null}
+        onCancelReply={() => setReplyTo(null)}
+        editing={editing !== null}
+        onCancelEdit={cancelEdit}
+      />
     </div>
   )
 }

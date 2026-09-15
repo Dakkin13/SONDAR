@@ -6,8 +6,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import { useCanHover } from '@/lib/hooks/useMediaQuery'
 import Avatar from '@/components/ui/Avatar'
-import type { Band } from '@/types'
+import MessageBubble, { type ReplyTarget } from '@/components/chat/MessageBubble'
+import ChatComposer from '@/components/chat/ChatComposer'
+import ImageLightbox from '@/components/chat/ImageLightbox'
+import { normalizeMessageRow, upsertMessage, isTempId, type BandChatMessage } from '@/lib/chat/types'
+import { toggleReaction } from '@/lib/chat/reactions'
+import { formatDayLabel, isGroupedWithPrevious, isSameDay } from '@/lib/chat/time'
+import { uploadChatImage } from '@/lib/chat/images'
+import { getDraft, setDraft } from '@/lib/chat/drafts'
+import { markBandMessagesRead } from '@/lib/data/messages'
+import { getErrorMessage } from '@/lib/utils'
+import type { Band, ProfileSummary } from '@/types'
 
 interface BandMemberLite {
   user_id: string
@@ -15,65 +26,53 @@ interface BandMemberLite {
   avatar_url: string | null
 }
 
-interface BandChatMessage {
-  id: string
-  created_at: string
-  band_id: string
-  from_id: string
-  content: string
-  read_by: string[]
-  liked_by: string[]
-}
-
-function formatBubbleTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatDayLabel(iso: string): string {
-  const d = new Date(iso)
-  const now = new Date()
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000)
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
-}
-
-function isSameDay(a: string, b: string) {
-  return new Date(a).toDateString() === new Date(b).toDateString()
-}
+const NEAR_BOTTOM_PX = 120
 
 export default function BandChatPage() {
   const { bandId } = useParams<{ bandId: string }>()
   const router = useRouter()
   const supabase = createClient()
   const { toast } = useToast()
+  const canHover = useCanHover()
+  const draftKey = `band-${bandId}`
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [band, setBand] = useState<Band | null>(null)
   const [members, setMembers] = useState<BandMemberLite[]>([])
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set())
   const [messages, setMessages] = useState<BandChatMessage[]>([])
-  const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set())
-  const [likeAnimating, setLikeAnimating] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [typingUserIds, setTypingUserIds] = useState<Set<string>>(new Set())
   const [showMenu, setShowMenu] = useState(false)
   const [confirmLeave, setConfirmLeave] = useState(false)
+  const [replyTo, setReplyTo] = useState<BandChatMessage | null>(null)
+  const [editing, setEditing] = useState<BandChatMessage | null>(null)
+  const [attachment, setAttachment] = useState<{ file: File; previewUrl: string } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
-  const currentUserIdRef = useRef<string | null>(null)
-  const sentIds = useRef(new Set<string>())
+  const listRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const nearBottomRef = useRef(true)
   const lastSentAtRef = useRef(0)
-  const lastTapRef = useRef<Record<string, number>>({})
+  const lastTypingSentRef = useRef(0)
   const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const typingChannelRef = useRef<any>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [keyboardOffset, setKeyboardOffset] = useState(0)
 
   const memberMap = new Map(members.map(m => [m.user_id, m]))
+  const mentionNames = members.flatMap(m => {
+    const name = m.display_name?.trim()
+    if (!name) return []
+    const first = name.split(' ')[0]
+    return first && first !== name ? [name, first] : [name]
+  })
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     bottomRef.current?.scrollIntoView({ behavior })
@@ -102,40 +101,28 @@ export default function BandChatPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
       setCurrentUserId(user.id)
-      currentUserIdRef.current = user.id
+      setInput(getDraft(draftKey))
+      void supabase.rpc('touch_last_active')
 
       const [bandRes, memberRowsRes, historyRes] = await Promise.all([
         supabase.from('bands').select('*').eq('id', bandId).single(),
         supabase.from('band_members').select('user_id').eq('band_id', bandId),
-        supabase
-          .from('band_messages')
-          .select('id, band_id, from_id, content, created_at, read_by, liked_by')
-          .eq('band_id', bandId)
-          .order('created_at', { ascending: true }),
+        supabase.from('band_messages').select('*').eq('band_id', bandId).order('created_at', { ascending: true }),
       ])
 
       if (bandRes.data) setBand(bandRes.data as Band)
 
-      const memberIds = (memberRowsRes.data ?? []).map(m => m.user_id)
+      const memberIds = (memberRowsRes.data ?? []).map(m => m.user_id as string)
       if (memberIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles').select('id, display_name, avatar_url').in('id', memberIds)
-        setMembers((profiles ?? []).map(p => ({
-          user_id: p.id, display_name: p.display_name, avatar_url: p.avatar_url,
-        })))
+        const { data: profiles } = await supabase.from('profiles').select('id, display_name, avatar_url').in('id', memberIds)
+        setMembers(((profiles ?? []) as ProfileSummary[]).map(p => ({ user_id: p.id, display_name: p.display_name, avatar_url: p.avatar_url })))
       }
 
-      const history = (historyRes.data as BandChatMessage[]) ?? []
+      const history = ((historyRes.data ?? []) as Record<string, unknown>[]).map(r => normalizeMessageRow<BandChatMessage>(r))
       setMessages(history)
-      setLikedMessages(new Set(history.filter(m => (m.liked_by ?? []).includes(user.id)).map(m => m.id)))
       setLoading(false)
 
-      // Mark unread messages (from others) as read — array-append computed client-side
-      const toMark = history.filter(m => m.from_id !== user.id && !(m.read_by ?? []).includes(user.id))
-      for (const m of toMark) {
-        const newReadBy = [...(m.read_by ?? []), user.id]
-        void supabase.from('band_messages').update({ read_by: newReadBy }).eq('id', m.id)
-      }
+      void markBandMessagesRead(supabase, user.id, history)
     }
     void init()
   }, [bandId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -144,89 +131,65 @@ export default function BandChatPage() {
     if (!loading) scrollToBottom('instant' as ScrollBehavior)
   }, [loading, scrollToBottom])
 
-  // ── Realtime — single channel per band (simpler than pairwise naming) ─────
+  // ── Realtime — one channel per band + typing + presence ──────────────────
   useEffect(() => {
     if (!currentUserId) return
+    const myId = currentUserId
+    const typingTimeouts = typingTimeoutsRef.current
 
     const channel = supabase
       .channel(`band-chat-${bandId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'band_messages' },
-        (payload) => {
-          const msg = payload.new as BandChatMessage
-          const myId = currentUserIdRef.current
-          if (!myId) return
-          if (msg.band_id !== bandId) return
-          if (sentIds.current.has(msg.id)) return
-
-          setMessages(prev => {
-            if (prev.some(m => m.id === msg.id)) return prev
-            return [...prev, msg]
-          })
-
-          if (msg.from_id !== myId) {
-            const newReadBy = [...(msg.read_by ?? []), myId]
-            void supabase.from('band_messages').update({ read_by: newReadBy }).eq('id', msg.id)
-          }
-
-          scrollToBottom()
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'band_messages' }, (payload) => {
+        const msg = normalizeMessageRow<BandChatMessage>(payload.new as Record<string, unknown>)
+        if (msg.band_id !== bandId) return
+        setMessages(prev => upsertMessage(prev, msg))
+        if (msg.from_id !== myId) {
+          setTypingUserIds(prev => { if (!prev.has(msg.from_id)) return prev; const n = new Set(prev); n.delete(msg.from_id); return n })
+          void supabase.from('band_messages').update({ read_by: [...(msg.read_by ?? []), myId] }).eq('id', msg.id)
+          if (nearBottomRef.current) setTimeout(() => scrollToBottom(), 30)
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'band_messages' },
-        (payload) => {
-          const updated = payload.new as BandChatMessage
-          const myId = currentUserIdRef.current
-          if (!myId) return
-          if (updated.band_id !== bandId) return
-
-          setMessages(prev =>
-            prev.map(m => m.id === updated.id
-              ? { ...m, read_by: updated.read_by ?? [], liked_by: updated.liked_by ?? [] }
-              : m
-            )
-          )
-          setLikedMessages(prev => {
-            const next = new Set(prev)
-            if ((updated.liked_by ?? []).includes(myId)) next.add(updated.id)
-            else next.delete(updated.id)
-            return next
-          })
-        }
-      )
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'band_messages' }, (payload) => {
+        const updated = normalizeMessageRow<BandChatMessage>(payload.new as Record<string, unknown>)
+        if (updated.band_id !== bandId) return
+        setMessages(prev => (prev.some(m => m.id === updated.id) ? upsertMessage(prev, updated) : prev))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'band_messages' }, (payload) => {
+        const id = (payload.old as { id?: string }).id
+        if (id) setMessages(prev => prev.filter(m => m.id !== id))
+      })
       .subscribe()
 
     const typingCh = supabase
       .channel(`typing-band-${bandId}`)
       .on('broadcast', { event: 'typing' }, (payload) => {
         const typerId = (payload.payload as { userId?: string })?.userId
-        if (!typerId || typerId === currentUserIdRef.current) return
+        if (!typerId || typerId === myId) return
         setTypingUserIds(prev => new Set(prev).add(typerId))
         if (typingTimeoutsRef.current[typerId]) clearTimeout(typingTimeoutsRef.current[typerId])
         typingTimeoutsRef.current[typerId] = setTimeout(() => {
-          setTypingUserIds(prev => {
-            const next = new Set(prev)
-            next.delete(typerId)
-            return next
-          })
+          setTypingUserIds(prev => { const n = new Set(prev); n.delete(typerId); return n })
         }, 3000)
       })
       .subscribe()
-
     typingChannelRef.current = typingCh
+
+    const presenceCh = supabase.channel(`presence-band-${bandId}`, { config: { presence: { key: myId } } })
+    presenceCh
+      .on('presence', { event: 'sync' }, () => {
+        setOnlineIds(new Set(Object.keys(presenceCh.presenceState())))
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') void presenceCh.track({ online_at: new Date().toISOString() })
+      })
 
     return () => {
       void supabase.removeChannel(channel)
       void supabase.removeChannel(typingCh)
-      Object.values(typingTimeoutsRef.current).forEach(clearTimeout)
+      void supabase.removeChannel(presenceCh)
+      Object.values(typingTimeouts).forEach(clearTimeout)
     }
   }, [currentUserId, bandId, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (messages.length > 0 && !loading) scrollToBottom()
-  }, [messages.length, loading, scrollToBottom])
 
   useEffect(() => {
     if (!showMenu) return
@@ -246,83 +209,147 @@ export default function BandChatPage() {
     setConfirmLeave(false)
   })
 
-  function handleMessageTap(msgId: string) {
-    if (msgId.startsWith('temp-')) return
+  useEffect(() => () => { if (attachment) URL.revokeObjectURL(attachment.previewUrl) }, [attachment])
+
+  function handleListScroll() {
+    const el = listRef.current
+    if (!el) return
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+  }
+
+  function handleInputChange(v: string) {
+    setInput(v)
+    if (!editing) setDraft(draftKey, v)
+  }
+
+  function handleTyping() {
     const now = Date.now()
-    const last = lastTapRef.current[msgId] ?? 0
-    if (now - last < 300) {
-      lastTapRef.current[msgId] = 0
-      void toggleLike(msgId)
-    } else {
-      lastTapRef.current[msgId] = now
+    if (now - lastTypingSentRef.current < 1000) return
+    lastTypingSentRef.current = now
+    void typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId } })
+  }
+
+  // ── Reactions / reply / edit / delete ─────────────────────────────────────
+  async function handleReact(msg: BandChatMessage, emoji: string) {
+    if (!currentUserId || isTempId(msg.id)) return
+    const next = toggleReaction(msg.reactions, emoji, currentUserId)
+    setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, reactions: next } : m)))
+    const { error } = await supabase.from('band_messages').update({ reactions: next }).eq('id', msg.id)
+    if (error) {
+      setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, reactions: msg.reactions } : m)))
+      toast(getErrorMessage(error, 'Could not react'), 'error')
     }
   }
 
-  async function toggleLike(msgId: string) {
-    if (!currentUserId) return
-    const isLiked = likedMessages.has(msgId)
+  function startReply(msg: BandChatMessage) { setEditing(null); setReplyTo(msg) }
+  function startEdit(msg: BandChatMessage) { setReplyTo(null); setAttachment(null); setEditing(msg); setInput(msg.content) }
+  function cancelEdit() { setEditing(null); setInput(getDraft(draftKey)) }
 
-    setLikedMessages(prev => {
-      const next = new Set(prev)
-      if (isLiked) next.delete(msgId)
-      else next.add(msgId)
-      return next
-    })
-    if (!isLiked) {
-      setLikeAnimating(msgId)
-      setTimeout(() => setLikeAnimating(null), 700)
+  async function handleDelete(msg: BandChatMessage) {
+    if (isTempId(msg.id)) return
+    const snapshot = msg
+    setMessages(prev => prev.map(m => (m.id === msg.id ? { ...m, deleted_at: new Date().toISOString(), content: '', image_url: null, reactions: {} } : m)))
+    const { error } = await supabase.from('band_messages').update({ deleted_at: new Date().toISOString() }).eq('id', msg.id)
+    if (error) {
+      setMessages(prev => prev.map(m => (m.id === msg.id ? snapshot : m)))
+      toast(getErrorMessage(error, 'Could not delete message'), 'error')
     }
-
-    const msg = messages.find(m => m.id === msgId)
-    const currentLikes = msg?.liked_by ?? []
-    const newLikes = isLiked ? currentLikes.filter(id => id !== currentUserId) : [...currentLikes, currentUserId]
-
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, liked_by: newLikes } : m))
-    await supabase.from('band_messages').update({ liked_by: newLikes }).eq('id', msgId)
   }
 
-  const handleSend = async () => {
+  function jumpTo(id: string) {
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightedId(id)
+    setTimeout(() => setHighlightedId(null), 1400)
+  }
+
+  // ── Send / save edit ─────────────────────────────────────────────────────
+  async function handleSend() {
+    if (!currentUserId || sending) return
     const content = input.trim()
-    if (!content || !currentUserId || sending) return
+
+    if (editing) {
+      if (!content || content === editing.content) { cancelEdit(); return }
+      const target = editing
+      setSending(true)
+      setMessages(prev => prev.map(m => (m.id === target.id ? { ...m, content, edited_at: new Date().toISOString() } : m)))
+      cancelEdit()
+      const { error } = await supabase.from('band_messages').update({ content }).eq('id', target.id)
+      if (error) {
+        setMessages(prev => prev.map(m => (m.id === target.id ? target : m)))
+        toast(getErrorMessage(error, 'Could not edit message'), 'error')
+      }
+      setSending(false)
+      inputRef.current?.focus()
+      return
+    }
+
+    if (!content && !attachment) return
     const now = Date.now()
-    if (now - lastSentAtRef.current < 1500) return
+    if (now - lastSentAtRef.current < 800) return
     lastSentAtRef.current = now
 
     setSending(true)
+    const pendingAttachment = attachment
+    const pendingReply = replyTo
     setInput('')
+    setDraft(draftKey, '')
+    setReplyTo(null)
+    setAttachment(null)
 
-    const tempId = `temp-${Date.now()}`
+    const tempId = `temp-${now}`
     const tempMsg: BandChatMessage = {
       id: tempId, band_id: bandId, from_id: currentUserId, content,
-      created_at: new Date().toISOString(), read_by: [], liked_by: [],
+      created_at: new Date(now).toISOString(), read_by: [],
+      reactions: {}, reply_to: pendingReply?.id ?? null,
+      image_url: pendingAttachment?.previewUrl ?? null, deleted_at: null, edited_at: null,
     }
-    setMessages(prev => [...prev, tempMsg])
-    scrollToBottom()
+    setMessages(prev => upsertMessage(prev, tempMsg))
+    setTimeout(() => scrollToBottom(), 30)
 
-    const { data, error } = await supabase
-      .from('band_messages')
-      .insert({ band_id: bandId, from_id: currentUserId, content })
-      .select()
-      .single()
-
-    if (error) {
+    function rollback(err: unknown, fallback: string) {
       setMessages(prev => prev.filter(m => m.id !== tempId))
       setInput(content)
-      toast('Could not send message: ' + error.message, 'error')
-    } else if (data) {
-      sentIds.current.add((data as BandChatMessage).id)
-      setMessages(prev => prev.map(m => m.id === tempId ? (data as BandChatMessage) : m))
+      setReplyTo(pendingReply)
+      setAttachment(pendingAttachment)
+      toast(getErrorMessage(err, fallback), 'error')
+    }
+
+    let imageUrl: string | null = null
+    if (pendingAttachment) {
+      setUploading(true)
+      try {
+        imageUrl = await uploadChatImage(supabase, currentUserId, pendingAttachment.file)
+      } catch (err) {
+        setUploading(false)
+        setSending(false)
+        rollback(err, 'Could not upload photo')
+        return
+      }
+      setUploading(false)
+    }
+
+    const payload: Record<string, unknown> = { band_id: bandId, from_id: currentUserId, content }
+    if (imageUrl) payload.image_url = imageUrl
+    if (pendingReply) payload.reply_to = pendingReply.id
+
+    const { data, error } = await supabase.from('band_messages').insert(payload).select().single()
+
+    if (error || !data) {
+      rollback(error, 'Could not send message')
+    } else {
+      setMessages(prev => upsertMessage(prev, normalizeMessageRow<BandChatMessage>(data as Record<string, unknown>), tempId))
+      if (pendingAttachment) URL.revokeObjectURL(pendingAttachment.previewUrl)
     }
 
     setSending(false)
     inputRef.current?.focus()
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !sending) {
-      e.preventDefault()
-      void handleSend()
-    }
+  function handleAttach(file: File) {
+    if (!file.type.startsWith('image/')) { toast('Only images can be attached', 'error'); return }
+    setEditing(null)
+    setAttachment({ file, previewUrl: URL.createObjectURL(file) })
+    inputRef.current?.focus()
   }
 
   async function handleLeave() {
@@ -331,15 +358,30 @@ export default function BandChatPage() {
     router.push('/bands')
   }
 
-  const typingNames = Array.from(typingUserIds)
-    .map(id => memberMap.get(id)?.display_name?.split(' ')[0] ?? 'Someone')
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const othersOnline = members.filter(m => m.user_id !== currentUserId && onlineIds.has(m.user_id)).length
+  const subtitle = `${members.length} member${members.length !== 1 ? 's' : ''}${othersOnline > 0 ? ` · ${othersOnline} online` : ''}`
+
+  const typingNames = Array.from(typingUserIds).map(id => memberMap.get(id)?.display_name?.split(' ')[0] ?? 'Someone')
   const typingLabel = typingNames.length === 0 ? null
     : typingNames.length === 1 ? `${typingNames[0]} is typing…`
     : typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing…`
     : `${typingNames[0]}, ${typingNames[1]} +${typingNames.length - 2} are typing…`
 
+  const byId = new Map(messages.map(m => [m.id, m]))
+  function senderName(userId: string): string | null {
+    return userId === currentUserId ? 'You' : (memberMap.get(userId)?.display_name ?? null)
+  }
+  function replyTargetFor(msg: BandChatMessage): ReplyTarget | null {
+    if (!msg.reply_to) return null
+    const t = byId.get(msg.reply_to)
+    if (!t) return { id: msg.reply_to, senderName: null, content: '', image_url: null, deleted: false, unavailable: true }
+    return { id: t.id, senderName: senderName(t.from_id), content: t.content, image_url: t.image_url, deleted: t.deleted_at !== null }
+  }
+
   return (
     <div className="flex flex-col" style={{ height: '100dvh' }}>
+      <ImageLightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
 
       {/* ── Confirm leave sheet ─────────────────────────────────────────── */}
       <AnimatePresence>
@@ -364,12 +406,8 @@ export default function BandChatPage() {
               </p>
               <div className="mt-5 flex flex-col gap-2">
                 <button onClick={() => { setConfirmLeave(false); void handleLeave() }}
-                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white">
-                  Leave band
-                </button>
-                <button onClick={() => setConfirmLeave(false)} className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]">
-                  Cancel
-                </button>
+                  className="w-full rounded-xl bg-red-600 py-3 text-sm font-semibold text-white">Leave band</button>
+                <button onClick={() => setConfirmLeave(false)} className="w-full rounded-xl py-3 text-sm text-[rgba(240,239,235,0.4)]">Cancel</button>
               </div>
             </motion.div>
           </motion.div>
@@ -417,9 +455,7 @@ export default function BandChatPage() {
             <p className="truncate font-[family-name:var(--font-bebas)] text-xl tracking-widest text-[#F0EFEB]">
               {band?.name?.toUpperCase() ?? 'LOADING…'}
             </p>
-            <p className="text-[11px] text-[rgba(240,239,235,0.35)]">
-              {members.length} member{members.length !== 1 ? 's' : ''}
-            </p>
+            <p className="text-[11px]" style={{ color: othersOnline > 0 ? '#34d399' : 'rgba(240,239,235,0.35)' }}>{subtitle}</p>
           </button>
 
           <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
@@ -474,7 +510,7 @@ export default function BandChatPage() {
       </div>
 
       {/* ── Messages list ──────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={listRef} onScroll={handleListScroll} className="flex-1 overflow-y-auto px-4 py-4">
         <div className="mx-auto max-w-lg md:max-w-2xl">
           {loading ? (
             <div className="flex items-center justify-center py-24">
@@ -498,99 +534,62 @@ export default function BandChatPage() {
                 <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
                   {(band?.name ?? 'YOUR BAND').toUpperCase()}
                 </p>
-                <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.35)]">
-                  {members.length} member{members.length !== 1 ? 's' : ''}
-                </p>
+                <p className="mt-0.5 text-xs text-[rgba(240,239,235,0.35)]">{subtitle}</p>
               </div>
               <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 20px', maxWidth: 280 }}>
-                <p className="text-xs leading-relaxed text-[rgba(240,239,235,0.4)]">
-                  Say hi to the band 🎵
-                </p>
+                <p className="text-xs leading-relaxed text-[rgba(240,239,235,0.4)]">Say hi to the band 🎵</p>
               </div>
             </div>
           ) : (
-            <AnimatePresence initial={false}>
-              {messages.map((msg, i) => {
-                const isMine = msg.from_id === currentUserId
-                const showDay = i === 0 || !isSameDay(messages[i - 1].created_at, msg.created_at)
-                const isTemp = msg.id.startsWith('temp-')
-                const isAnimating = likeAnimating === msg.id
-                const likedByOther = (msg.liked_by ?? []).some(id => id !== currentUserId)
-                const likedByMe = likedMessages.has(msg.id)
-                const sender = memberMap.get(msg.from_id)
-                const readCount = (msg.read_by ?? []).filter(id => id !== msg.from_id).length
-
-                return (
-                  <div key={msg.id}>
-                    {showDay && (
-                      <div className="my-4 flex items-center gap-3">
-                        <div className="h-px flex-1 bg-[rgba(240,239,235,0.06)]" />
-                        <span className="text-[10px] font-medium text-[rgba(240,239,235,0.25)]">{formatDayLabel(msg.created_at)}</span>
-                        <div className="h-px flex-1 bg-[rgba(240,239,235,0.06)]" />
-                      </div>
-                    )}
-
-                    <div
-                      className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
-                      onClick={() => handleMessageTap(msg.id)}
-                      style={{ cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-                    >
-                      <div style={{ position: 'relative', maxWidth: '75%' }}>
-                        {!isMine && (
-                          <p className="mb-0.5 px-1 text-[10px] font-medium text-[rgba(255,92,0,0.7)]">
-                            {sender?.display_name ?? 'Unknown'}
-                          </p>
-                        )}
-                        <motion.div
-                          initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                          animate={{ opacity: isTemp ? 0.65 : 1, y: 0, scale: 1 }}
-                          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
-                        >
-                          <div
-                            className="px-4 py-2.5"
-                            style={{
-                              background: isMine ? '#FF5500' : 'rgba(255,255,255,0.09)',
-                              backdropFilter: isMine ? 'none' : 'blur(20px)',
-                              WebkitBackdropFilter: isMine ? 'none' : 'blur(20px)',
-                              border: isMine ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                              borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                              color: isMine ? '#000' : '#F0EFEB',
-                            }}
-                          >
-                            <p className="text-sm leading-relaxed">{msg.content}</p>
-                          </div>
-                        </motion.div>
-
-                        <div className={`mt-0.5 flex items-center gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-                          {!isMine && likedByMe && <span style={{ fontSize: 10 }}>❤️</span>}
-                          <span className="text-[9px] text-[rgba(240,239,235,0.22)]">{formatBubbleTime(msg.created_at)}</span>
-                          {isMine && !isTemp && readCount > 0 && (
-                            <span className="text-[9px] font-medium" style={{ color: '#FF5C00' }} title={`Seen by ${readCount}`}>
-                              ✓✓ {readCount > 1 ? readCount : ''}
-                            </span>
-                          )}
-                          {isMine && likedByOther && <span style={{ fontSize: 10 }}>❤️</span>}
-                        </div>
-
-                        <AnimatePresence>
-                          {isAnimating && (
-                            <motion.span
-                              initial={{ opacity: 1, y: 0, scale: 1 }}
-                              animate={{ opacity: 0, y: -48, scale: 1.8 }}
-                              exit={{}}
-                              transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] as const }}
-                              style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: 22, pointerEvents: 'none', zIndex: 10 }}
-                            >
-                              ❤️
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </div>
+            messages.map((msg, i) => {
+              const prev = messages[i - 1]
+              const next = messages[i + 1]
+              const showDay = !prev || !isSameDay(prev.created_at, msg.created_at)
+              const grouped = !showDay && isGroupedWithPrevious(prev, msg)
+              const showTime = !next || !isGroupedWithPrevious(msg, next)
+              const isMine = msg.from_id === currentUserId
+              const readCount = (msg.read_by ?? []).filter(id => id !== msg.from_id).length
+              return (
+                <div key={msg.id}>
+                  {showDay && (
+                    <div className="sticky top-0 z-[5] my-3 flex justify-center">
+                      <span
+                        className="rounded-full px-3 py-1 text-[10px] font-medium text-[rgba(240,239,235,0.45)]"
+                        style={{ background: 'rgba(13,13,13,0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.06)' }}
+                      >
+                        {formatDayLabel(msg.created_at)}
+                      </span>
                     </div>
-                  </div>
-                )
-              })}
-            </AnimatePresence>
+                  )}
+                  <MessageBubble
+                    msg={msg}
+                    currentUserId={currentUserId ?? ''}
+                    isMine={isMine}
+                    isTemp={isTempId(msg.id)}
+                    showTime={showTime}
+                    showSender={!grouped}
+                    senderName={memberMap.get(msg.from_id)?.display_name ?? null}
+                    replyTarget={replyTargetFor(msg)}
+                    mentions={mentionNames}
+                    canHover={canHover}
+                    highlighted={highlightedId === msg.id}
+                    receipt={readCount > 0 ? (
+                      <span className="text-[9px] font-medium" style={{ color: '#FF5C00' }} title={`Seen by ${readCount}`}>
+                        ✓✓ {readCount > 1 ? readCount : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-medium" style={{ color: 'rgba(240,239,235,0.28)' }} title="Sent">✓</span>
+                    )}
+                    onReply={m => startReply(m as BandChatMessage)}
+                    onReact={(m, emoji) => void handleReact(m as BandChatMessage, emoji)}
+                    onEdit={m => startEdit(m as BandChatMessage)}
+                    onDelete={m => void handleDelete(m as BandChatMessage)}
+                    onImageClick={setLightboxUrl}
+                    onJumpTo={jumpTo}
+                  />
+                </div>
+              )
+            })
           )}
 
           <AnimatePresence>
@@ -613,58 +612,24 @@ export default function BandChatPage() {
         </div>
       </div>
 
-      {/* ── Input bar ──────────────────────────────────────────────────── */}
-      <div
-        className="flex-shrink-0 px-4 pt-3"
-        style={{
-          background: 'rgba(13,13,13,0.92)',
-          backdropFilter: 'blur(48px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(48px) saturate(180%)',
-          borderTop: '0.5px solid rgba(255,255,255,0.08)',
-          paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        }}
-      >
-        <div className="mx-auto flex max-w-lg md:max-w-2xl items-end gap-3">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={e => {
-              setInput(e.target.value)
-              void typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId } })
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Message the band…"
-            rows={1}
-            className="flex-1 resize-none text-sm text-[#F0EFEB] placeholder-[rgba(240,239,235,0.25)] outline-none"
-            style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 20, padding: '10px 16px', maxHeight: 120, overflowY: 'auto' }}
-            onInput={e => {
-              const el = e.currentTarget
-              el.style.height = 'auto'
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-            }}
-          />
-          <motion.button
-            onClick={() => { try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
-            onTouchEnd={(e) => { e.preventDefault(); try { navigator.vibrate?.(10) } catch { /* ignore */ }; void handleSend() }}
-            disabled={!input.trim() || sending}
-            whileHover={{ scale: 1.06 }}
-            whileTap={{ scale: 0.92 }}
-            style={{
-              flexShrink: 0, width: 38, height: 38, borderRadius: '50%',
-              background: input.trim() ? '#FF5500' : 'rgba(255,255,255,0.08)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: input.trim() ? '0 0 12px rgba(255,85,0,0.35)' : 'none',
-              transition: 'background 0.2s, box-shadow 0.2s',
-            }}
-            aria-label="Send"
-          >
-            <svg viewBox="0 0 24 24" fill="none" style={{ width: 18, height: 18 }} stroke={input.trim() ? '#000' : 'rgba(240,239,235,0.3)'} strokeWidth={2.5}>
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" fill="currentColor" stroke="none" style={{ color: input.trim() ? '#000' : 'rgba(240,239,235,0.3)' }} />
-            </svg>
-          </motion.button>
-        </div>
-      </div>
+      <ChatComposer
+        value={input}
+        onChange={handleInputChange}
+        onSend={() => void handleSend()}
+        onTyping={handleTyping}
+        sending={sending}
+        placeholder="Message the band…"
+        keyboardOffset={keyboardOffset}
+        inputRef={inputRef}
+        onAttach={handleAttach}
+        attachment={attachment ? { previewUrl: attachment.previewUrl } : null}
+        onRemoveAttachment={() => setAttachment(null)}
+        uploading={uploading}
+        replyTo={replyTo ? { senderName: senderName(replyTo.from_id), content: replyTo.content, image_url: replyTo.image_url } : null}
+        onCancelReply={() => setReplyTo(null)}
+        editing={editing !== null}
+        onCancelEdit={cancelEdit}
+      />
     </div>
   )
 }
