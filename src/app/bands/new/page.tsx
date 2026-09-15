@@ -4,18 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getErrorMessage } from '@/lib/utils'
+import { tap } from '@/lib/touch'
 import type { ProfileSummary } from '@/types'
 
 type Connection = ProfileSummary
-
-// tap() fires on touch devices via touchend (with preventDefault so no double-fire)
-// and falls back to onClick on desktop — same pattern used in onboarding/Step1.tsx.
-function tap(fn: () => void) {
-  return {
-    onClick: fn,
-    onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); fn() },
-  }
-}
 
 const TOTAL_STEPS = 2
 
@@ -220,6 +212,7 @@ export default function NewBandPage() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Band name"
                 maxLength={60}
+                onKeyDown={(e) => { if (e.key === 'Enter' && canAdvance) { e.preventDefault(); setStep(2) } }}
                 className="w-full rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.06)] px-4 py-3 text-base text-[#F0EFEB] placeholder-[rgba(240,239,235,0.3)] outline-none focus:border-[rgba(255,85,0,0.4)]"
               />
               <textarea

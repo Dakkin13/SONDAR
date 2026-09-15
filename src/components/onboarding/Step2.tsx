@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import { tap } from '@/lib/touch'
 import type { Availability, Level, Objective } from '@/types'
 
 const OBJECTIVES: { value: Objective; label: string; emoji: string; subtitle: string }[] = [
@@ -30,15 +31,6 @@ interface Step2Props {
   onObjectivesChange: (objectives: Objective[]) => void
   onLevelChange: (level: Level) => void
   onAvailabilityChange: (availability: Availability[]) => void
-}
-
-// tap() fires on touch devices via touchend (with preventDefault to avoid double-fire)
-// and falls back to onClick on desktop. Works on iOS Safari + Android Chrome + desktop.
-function tap(fn: () => void) {
-  return {
-    onClick: fn,
-    onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); fn() },
-  }
 }
 
 export default function Step2({ objectives, level, availability, onObjectivesChange, onLevelChange, onAvailabilityChange }: Step2Props) {

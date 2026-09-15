@@ -8,6 +8,8 @@ import type { Band, BandMemberProfile, BandRole, ProfileSummary } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 import { getErrorMessage } from '@/lib/utils'
+import { tap } from '@/lib/touch'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 
 type Connection = ProfileSummary
 
@@ -15,13 +17,6 @@ interface PendingRequest {
   id: string
   invited_user_id: string
   display_name: string | null
-}
-
-function tap(fn: () => void) {
-  return {
-    onClick: fn,
-    onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); fn() },
-  }
 }
 
 function shortId(id: string): string {
@@ -133,6 +128,8 @@ export default function BandDetailPage() {
     setConnections((profiles as Connection[]) ?? [])
   }
 
+  useEscapeKey(showInvite, () => setShowInvite(false))
+
   function toggleInvite(id: string) {
     try { navigator.vibrate?.(10) } catch { /* ignore */ }
     setSelectedInviteIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -210,7 +207,7 @@ export default function BandDetailPage() {
       {/* Invite sheet */}
       {showInvite && (
         <div
-          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
           onClick={() => setShowInvite(false)}
         >
           <motion.div

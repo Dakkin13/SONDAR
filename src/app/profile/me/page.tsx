@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/types'
 import { getErrorMessage } from '@/lib/utils'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 
@@ -152,6 +153,8 @@ export default function MyProfilePage() {
     void load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEscapeKey(lightboxUrl !== null, () => setLightboxUrl(null))
+
   async function handleAddPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !userId || photoUrls.length >= MAX_ADDITIONAL) return
@@ -231,7 +234,7 @@ export default function MyProfilePage() {
       {/* Image lightbox */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95"
+          className="fixed inset-0 z-[500] flex cursor-pointer items-center justify-center bg-black/95"
           onClick={() => setLightboxUrl(null)}
           style={{ backdropFilter: 'blur(10px)' }}
         >

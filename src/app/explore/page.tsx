@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { NearbyMusician } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
+import { useCanHover } from '@/lib/hooks/useMediaQuery'
 
 const DEFAULT_LAT = 40.4168
 const DEFAULT_LNG = -3.7038
@@ -138,6 +139,7 @@ function MusicianProfileCard({
 
   const [photoIndex, setPhotoIndex] = useState(0)
   const [hovered, setHovered] = useState(false)
+  const canHover = useCanHover()
 
   const currentPhoto = allPhotos[photoIndex] ?? null
 
@@ -268,14 +270,15 @@ function MusicianProfileCard({
             </svg>
           )}
 
-          {/* Photo navigation arrows — visible on hover when multiple photos */}
-          {hasMultiple && hovered && (
+          {/* Photo navigation arrows — on hover for mouse users, always on touch devices
+              (there is no hover on a phone, so hiding them made extra photos unreachable) */}
+          {hasMultiple && (hovered || !canHover) && (
             <>
               <button
                 type="button"
                 onClick={prevPhoto}
-                className="absolute left-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-white transition-opacity"
-                style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+                className="absolute left-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-white transition-opacity"
+                style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', touchAction: 'manipulation' }}
                 aria-label="Previous photo"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -285,8 +288,8 @@ function MusicianProfileCard({
               <button
                 type="button"
                 onClick={nextPhoto}
-                className="absolute right-2 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-white transition-opacity"
-                style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+                className="absolute right-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-white transition-opacity"
+                style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', touchAction: 'manipulation' }}
                 aria-label="Next photo"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

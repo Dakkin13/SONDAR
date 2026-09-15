@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import type { Message, Profile } from '@/types'
 
 type OtherProfile = Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'instruments' | 'last_active'>
@@ -268,6 +269,12 @@ export default function ChatPage() {
   }, [showMenu])
 
   // ── Double-tap like ───────────────────────────────────────────────────────
+  useEscapeKey(showMenu || confirmDelete || confirmBlock, () => {
+    setShowMenu(false)
+    setConfirmDelete(false)
+    setConfirmBlock(false)
+  })
+
   function handleMessageTap(msgId: string) {
     if (msgId.startsWith('temp-')) return
     const now = Date.now()
@@ -614,7 +621,7 @@ export default function ChatPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setConfirmDelete(false)}
           >
             <motion.div
@@ -658,7 +665,7 @@ export default function ChatPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setConfirmBlock(false)}
           >
             <motion.div
@@ -937,6 +944,7 @@ export default function ChatPage() {
                     <div
                       className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
                       onClick={() => handleMessageTap(msg.id)}
+                      style={{ cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
                     >
                       <div style={{ position: 'relative', maxWidth: '75%' }}>
                         <motion.div

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import type { Band } from '@/types'
 
 interface BandMemberLite {
@@ -239,6 +240,11 @@ export default function BandChatPage() {
     }
   }, [showMenu])
 
+  useEscapeKey(showMenu || confirmLeave, () => {
+    setShowMenu(false)
+    setConfirmLeave(false)
+  })
+
   function handleMessageTap(msgId: string) {
     if (msgId.startsWith('temp-')) return
     const now = Date.now()
@@ -339,7 +345,7 @@ export default function BandChatPage() {
         {confirmLeave && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[200] flex cursor-pointer items-end justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setConfirmLeave(false)}
           >
             <motion.div
@@ -523,7 +529,11 @@ export default function BandChatPage() {
                       </div>
                     )}
 
-                    <div className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`} onClick={() => handleMessageTap(msg.id)}>
+                    <div
+                      className={`mb-1 flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                      onClick={() => handleMessageTap(msg.id)}
+                      style={{ cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+                    >
                       <div style={{ position: 'relative', maxWidth: '75%' }}>
                         {!isMine && (
                           <p className="mb-0.5 px-1 text-[10px] font-medium text-[rgba(255,92,0,0.7)]">

@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import { tap } from '@/lib/touch'
 import type { Genre, Instrument } from '@/types'
 
 const INSTRUMENTS: { value: Instrument; label: string; emoji: string }[] = [
@@ -37,15 +38,6 @@ interface Step1Props {
   genres: Genre[]
   onInstrumentsChange: (instruments: Instrument[]) => void
   onGenresChange: (genres: Genre[]) => void
-}
-
-// tap() fires on touch devices via touchend (with preventDefault so no double-fire)
-// and falls back to onClick on desktop. Works on iOS Safari + Android Chrome + desktop.
-function tap(fn: () => void) {
-  return {
-    onClick: fn,
-    onTouchEnd: (e: React.TouchEvent) => { e.preventDefault(); fn() },
-  }
 }
 
 export default function Step1({ instruments, genres, onInstrumentsChange, onGenresChange }: Step1Props) {

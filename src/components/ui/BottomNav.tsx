@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Home, Search, MessageCircle, User, Bell, X, CalendarDays } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 
 interface BellMessage {
   id: string
@@ -155,6 +156,8 @@ export default function BottomNav() {
       document.removeEventListener('touchstart', handleOutside)
     }
   }, [bellOpen])
+
+  useEscapeKey(bellOpen, () => setBellOpen(false))
 
   async function openBell() {
     setBellOpen(o => !o)

@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/types'
+import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 
@@ -188,6 +189,8 @@ export default function ProfilePage() {
     void load()
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEscapeKey(lightboxUrl !== null, () => setLightboxUrl(null))
+
   if (loading) {
     return (
       <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}>
@@ -256,7 +259,7 @@ export default function ProfilePage() {
       {/* Image lightbox */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/95"
+          className="fixed inset-0 z-[500] flex cursor-pointer items-center justify-center bg-black/95"
           onClick={() => setLightboxUrl(null)}
           style={{ backdropFilter: 'blur(10px)' }}
         >
