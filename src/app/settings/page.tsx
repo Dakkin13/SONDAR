@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { cn } from '@/lib/utils'
+import { cn, getErrorMessage } from '@/lib/utils'
 import CityAutocomplete from '@/components/onboarding/CityAutocomplete'
 import type { Availability, Genre, Instrument, Level, Objective } from '@/types'
 
@@ -309,7 +309,7 @@ export default function SettingsPage() {
       URL.revokeObjectURL(objectUrl)
       setLocalPreview(null)
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+      setUploadError(getErrorMessage(err, 'Upload failed'))
       setLocalPreview(null)
     } finally {
       setUploading(false)
@@ -331,7 +331,7 @@ export default function SettingsPage() {
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       patch('photoUrls', [...form.photoUrls, data.publicUrl])
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Photo upload failed')
+      setUploadError(getErrorMessage(err, 'Photo upload failed'))
     } finally {
       setAddingPhoto(false)
       if (addPhotoRef.current) addPhotoRef.current.value = ''

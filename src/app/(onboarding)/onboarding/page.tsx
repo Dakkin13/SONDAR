@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getErrorMessage } from '@/lib/utils'
 import type { Availability, Genre, Instrument, Level, Objective } from '@/types'
 import Step1 from '@/components/onboarding/Step1'
 import Step2 from '@/components/onboarding/Step2'
@@ -205,13 +206,7 @@ export default function OnboardingPage() {
 
     } catch (err) {
       console.error('handleFinish failed:', err)
-      const msg =
-        err instanceof Error
-          ? err.message
-          : typeof err === 'object' && err !== null && 'message' in err
-            ? String((err as { message: unknown }).message)
-            : String(err)
-      setError(msg)
+      setError(getErrorMessage(err, String(err)))
     } finally {
       setSaving(false)
     }

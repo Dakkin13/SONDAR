@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/types'
+import { getErrorMessage } from '@/lib/utils'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 
@@ -166,7 +167,7 @@ export default function MyProfilePage() {
       setPhotoUrls(next)
       await supabase.from('profiles').update({ photo_urls: next }).eq('id', userId)
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Photo upload failed', 'error')
+      toast(getErrorMessage(err, 'Photo upload failed'), 'error')
     } finally {
       setAddingPhoto(false)
       if (addPhotoRef.current) addPhotoRef.current.value = ''

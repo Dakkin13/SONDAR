@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useCallback } from 'react'
-import { cn } from '@/lib/utils'
+import { cn, getErrorMessage } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import CityAutocomplete from './CityAutocomplete'
 
@@ -89,7 +89,7 @@ export default function Step3({
       URL.revokeObjectURL(objectUrl)
       setLocalPreview(null)
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+      setUploadError(getErrorMessage(err, 'Upload failed'))
       setLocalPreview(null)
     } finally {
       setUploading(false)
@@ -121,7 +121,7 @@ export default function Step3({
       next[slot] = data.publicUrl
       onPhotoUrlsChange(next.filter(Boolean))
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Photo upload failed')
+      setUploadError(getErrorMessage(err, 'Photo upload failed'))
     } finally {
       setUploadingSlot(null)
       pendingSlotRef.current = null
