@@ -93,6 +93,13 @@ export default function GlobalBackground() {
     resize()
     window.addEventListener('resize', resize)
 
+    // Touch devices get 30 fps and skip the per-frame grain pass (the CSS
+    // grain in body::after still applies); reduced-motion users get one
+    // static frame and no animation loop at all.
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+    const reduceMotion  = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const MIN_FRAME_MS  = coarsePointer ? 1000 / 30 : 0
+
     // ── Lerp state (normalised 0–1) ──────────────────────────────────────
     let ox = 0.60, oy = 0.38, or_ = 0.18
     let vx = 0.22, vy = 0.62, vr  = 0.14
@@ -105,6 +112,8 @@ export default function GlobalBackground() {
     let bloomDone = false
 
     function startBloom() {
+      // No animation loop under reduced motion — go straight to the destination.
+      if (reduceMotion) { routerRef.current.push('/explore'); return }
       bOx = ox; bOy = oy; bOr = or_
       bVx = vx; bVy = vy; bVr = vr
       bloomActive    = true
@@ -124,11 +133,15 @@ export default function GlobalBackground() {
     window.addEventListener('sondar-step', handleStep)
 
     // ── RAF loop ────────────────────────────────────────────────────────
-    let raf: number
+    let raf = 0
+    let running = false
+    let lastFrame = -Infinity
 
     function draw(time: number) {
-      raf = requestAnimationFrame(draw)
+      if (running) raf = requestAnimationFrame(draw)
       if (!canvas || !ctx) return
+      if (running && time - lastFrame < MIN_FRAME_MS) return
+      lastFrame = time
       try {
       const w = canvas.width
       const h = canvas.height
@@ -272,7 +285,7 @@ export default function GlobalBackground() {
       }
 
       // ── Film grain ───────────────────────────────────────────────────
-      if (grainPat) {
+      if (grainPat && !coarsePointer) {
         ctx.save()
         ctx.globalAlpha = 0.025
         ctx.fillStyle   = grainPat
@@ -285,9 +298,40 @@ export default function GlobalBackground() {
       }
     }
 
-    raf = requestAnimationFrame(draw)
-    return () => {
+    function start() {
+      if (running || reduceMotion) return
+      running = true
+      raf = requestAnimationFrame(draw)
+    }
+    function stop() {
+      running = false
       cancelAnimationFrame(raf)
+    }
+    // Don't burn battery drawing a background nobody can see.
+    function onVisibility() {
+      if (document.hidden) stop()
+      else start()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    function drawStaticFrame() {
+      const stage = STAGES[stageName(pathnameRef.current, stepRef.current)] ?? STAGES.landing
+      ox = stage.orange.x; oy = stage.orange.y; or_ = stage.orange.r
+      vx = stage.violet.x; vy = stage.violet.y; vr = stage.violet.r
+      draw(performance.now())
+    }
+
+    if (reduceMotion) {
+      drawStaticFrame()
+      window.addEventListener('resize', drawStaticFrame)
+    } else {
+      start()
+    }
+
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('resize', drawStaticFrame)
       window.removeEventListener('resize', resize)
       window.removeEventListener('sondar-step', handleStep)
     }
