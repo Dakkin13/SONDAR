@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { NearbyMusician, Profile } from '@/types'
 import type { SpacePin } from '@/components/map/SpacesMap'
 import BottomNav from '@/components/ui/BottomNav'
+import Avatar from '@/components/ui/Avatar'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
 
 const SpacesMap = dynamic(() => import('@/components/map/SpacesMap'), { ssr: false })
@@ -397,21 +398,20 @@ export default function HomePage() {
                   onClick={() => router.push(`/bands/${b.id}`)}
                   className="glass-apple flex w-full items-center gap-3 px-4 py-3.5 text-left"
                 >
-                  {b.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={b.avatar_url} alt={b.name}
-                      className="h-9 w-9 flex-shrink-0 rounded-xl object-cover" />
-                  ) : (
-                    <div
-                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl"
-                      style={{ background: 'rgba(255,92,0,0.10)', border: '1px solid rgba(255,92,0,0.15)' }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                    </div>
-                  )}
+                  <Avatar
+                    src={b.avatar_url}
+                    alt={b.name}
+                    size={36}
+                    shape="rounded"
+                    radius={12}
+                    border={b.avatar_url ? undefined : '1px solid rgba(255,92,0,0.15)'}
+                    background="rgba(255,92,0,0.10)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-[13px] leading-tight text-[#F0EFEB]"
                       style={{ fontFamily: 'var(--font-bebas)', letterSpacing: '0.05em' }}>

@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import Avatar from '@/components/ui/Avatar'
 import type { Message, Profile } from '@/types'
 
 type OtherProfile = Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'instruments' | 'last_active'>
@@ -874,24 +875,18 @@ export default function ChatPage() {
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-16 text-center">
               {/* Avatar */}
-              <div
-                style={{
-                  width: 72, height: 72, borderRadius: '50%', overflow: 'hidden',
-                  border: '2px solid rgba(255,92,0,0.35)',
-                  background: '#1a1a1a',
-                  boxShadow: '0 0 32px rgba(255,92,0,0.12)',
-                }}
+              <Avatar
+                src={other?.avatar_url}
+                alt={other?.display_name ?? ''}
+                size={72}
+                border="2px solid rgba(255,92,0,0.35)"
+                background="#1a1a1a"
+                boxShadow="0 0 32px rgba(255,92,0,0.12)"
               >
-                {other?.avatar_url ? (
-                  <img src={other.avatar_url} alt={other.display_name ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 24, color: 'rgba(255,92,0,0.8)' }}>
-                      {(other?.display_name ?? '?')[0]?.toUpperCase()}
-                    </span>
-                  </div>
-                )}
-              </div>
+                <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 24, color: 'rgba(255,92,0,0.8)' }}>
+                  {(other?.display_name ?? '?')[0]?.toUpperCase()}
+                </span>
+              </Avatar>
               <div>
                 <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
                   {(other?.display_name ?? 'MUSICIAN').toUpperCase()}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getErrorMessage } from '@/lib/utils'
 import { tap } from '@/lib/touch'
+import Avatar from '@/components/ui/Avatar'
 import type { ProfileSummary } from '@/types'
 
 type Connection = ProfileSummary
@@ -268,17 +269,16 @@ export default function NewBandPage() {
                             : 'glass'
                         }`}
                       >
-                        {c.avatar_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.avatar_url} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
-                        ) : (
-                          <div className="flex items-center justify-center rounded-full"
-                            style={{ width: 36, height: 36, background: selected ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.06)' }}>
-                            <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 13, color: selected ? '#000' : 'rgba(240,239,235,0.5)' }}>
-                              {initials}
-                            </span>
-                          </div>
-                        )}
+                        <Avatar
+                          src={c.avatar_url}
+                          alt=""
+                          size={36}
+                          background={selected ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.06)'}
+                        >
+                          <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 13, color: selected ? '#000' : 'rgba(240,239,235,0.5)' }}>
+                            {initials}
+                          </span>
+                        </Avatar>
                         <span className={`text-sm font-medium ${selected ? 'text-black' : 'text-[#F0EFEB]'}`}>
                           {c.display_name ?? 'Unknown musician'}
                         </span>

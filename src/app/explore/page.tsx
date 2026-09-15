@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
@@ -250,10 +251,12 @@ function MusicianProfileCard({
           </div>
 
           {currentPhoto ? (
-            <img
+            <Image
               src={currentPhoto}
               alt={m.display_name ?? 'Musician'}
-              className="absolute inset-0 h-full w-full object-cover opacity-90 transition-opacity duration-200"
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw"
+              className="object-cover opacity-90 transition-opacity duration-200"
             />
           ) : (
             <svg className="absolute inset-0 m-auto" width="64" height="78" viewBox="0 0 96 116" fill="none" aria-hidden>

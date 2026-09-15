@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Band, BandMemberProfile, BandRole } from '@/types'
 import { useToast } from '@/components/ui/Toast'
+import Avatar from '@/components/ui/Avatar'
 import { getErrorMessage } from '@/lib/utils'
 
 const inputClass =
@@ -211,14 +212,9 @@ export default function BandSettingsPage() {
               const isSelf = m.user_id === currentUserId
               return (
                 <div key={m.user_id} className="flex items-center gap-3 rounded-xl bg-[rgba(255,255,255,0.03)] px-3 py-2.5">
-                  {m.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
-                  ) : (
-                    <div className="flex items-center justify-center rounded-full" style={{ width: 32, height: 32, background: 'rgba(255,255,255,0.06)' }}>
-                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 12, color: 'rgba(240,239,235,0.5)' }}>{initials}</span>
-                    </div>
-                  )}
+                  <Avatar src={m.avatar_url} alt="" size={32}>
+                    <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 12, color: 'rgba(240,239,235,0.5)' }}>{initials}</span>
+                  </Avatar>
                   <span className="flex-1 text-sm text-[#F0EFEB]">
                     {m.display_name ?? 'Unknown'} {isSelf && <span className="text-[rgba(240,239,235,0.3)]">(you)</span>}
                   </span>

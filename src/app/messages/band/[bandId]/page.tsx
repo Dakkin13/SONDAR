@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import Avatar from '@/components/ui/Avatar'
 import type { Band } from '@/types'
 
 interface BandMemberLite {
@@ -399,16 +400,17 @@ export default function BandChatPage() {
           </button>
 
           <button onClick={() => router.push(`/bands/${bandId}`)} className="flex-shrink-0">
-            {band?.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={band.avatar_url} alt={band.name}
-                style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover', border: '2px solid rgba(240,239,235,0.15)' }} />
-            ) : (
-              <div className="flex items-center justify-center"
-                style={{ width: 38, height: 38, borderRadius: 12, background: '#1a1a1a', border: '2px solid rgba(240,239,235,0.1)' }}>
-                <span className="text-base">🎸</span>
-              </div>
-            )}
+            <Avatar
+              src={band?.avatar_url}
+              alt={band?.name ?? 'Band'}
+              size={38}
+              shape="rounded"
+              radius={12}
+              border={band?.avatar_url ? '2px solid rgba(240,239,235,0.15)' : '2px solid rgba(240,239,235,0.1)'}
+              background="#1a1a1a"
+            >
+              <span className="text-base">🎸</span>
+            </Avatar>
           </button>
 
           <button onClick={() => router.push(`/bands/${bandId}`)} className="min-w-0 flex-1 text-left">
@@ -480,19 +482,18 @@ export default function BandChatPage() {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-16 text-center">
-              <div style={{
-                width: 72, height: 72, borderRadius: 16, overflow: 'hidden',
-                border: '2px solid rgba(255,92,0,0.35)', background: '#1a1a1a', boxShadow: '0 0 32px rgba(255,92,0,0.12)',
-              }}>
-                {band?.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={band.avatar_url} alt={band.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span className="text-2xl">🎸</span>
-                  </div>
-                )}
-              </div>
+              <Avatar
+                src={band?.avatar_url}
+                alt={band?.name ?? 'Band'}
+                size={72}
+                shape="rounded"
+                radius={16}
+                border="2px solid rgba(255,92,0,0.35)"
+                background="#1a1a1a"
+                boxShadow="0 0 32px rgba(255,92,0,0.12)"
+              >
+                <span className="text-2xl">🎸</span>
+              </Avatar>
               <div>
                 <p className="font-[family-name:var(--font-bebas)] text-2xl tracking-widest text-[#F0EFEB]">
                   {(band?.name ?? 'YOUR BAND').toUpperCase()}

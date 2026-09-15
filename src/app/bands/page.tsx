@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
+import Avatar from '@/components/ui/Avatar'
 import type { Band } from '@/types'
 
 interface BandRow {
@@ -199,26 +200,20 @@ export default function BandsPage() {
                   }}
                 >
                   {/* Band avatar (rounded-square) or icon-chip fallback */}
-                  {row.band.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={row.band.avatar_url}
-                      alt={row.band.name}
-                      style={{ width: 50, height: 50, borderRadius: 14, objectFit: 'cover', flexShrink: 0,
-                        border: '1.5px solid rgba(240,239,235,0.10)' }}
-                    />
-                  ) : (
-                    <div
-                      className="flex items-center justify-center"
-                      style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(255,92,0,0.10)',
-                        border: '1.5px solid rgba(255,92,0,0.15)', flexShrink: 0 }}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                    </div>
-                  )}
+                  <Avatar
+                    src={row.band.avatar_url}
+                    alt={row.band.name}
+                    size={50}
+                    shape="rounded"
+                    radius={14}
+                    border={row.band.avatar_url ? '1.5px solid rgba(240,239,235,0.10)' : '1.5px solid rgba(255,92,0,0.15)'}
+                    background="rgba(255,92,0,0.10)"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,92,0,0.8)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </Avatar>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>

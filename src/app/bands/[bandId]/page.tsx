@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import type { Band, BandMemberProfile, BandRole, ProfileSummary } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
+import Avatar from '@/components/ui/Avatar'
 import { useToast } from '@/components/ui/Toast'
 import { getErrorMessage } from '@/lib/utils'
 import { tap } from '@/lib/touch'
@@ -240,17 +241,16 @@ export default function BandDetailPage() {
                     style={{ WebkitTapHighlightColor: 'rgba(255,85,0,0.2)', touchAction: 'manipulation' }}
                     className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all active:scale-[0.98] ${selected ? 'bg-[#FF5500]' : 'glass'}`}
                   >
-                    {c.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} />
-                    ) : (
-                      <div className="flex items-center justify-center rounded-full"
-                        style={{ width: 32, height: 32, background: selected ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.06)' }}>
-                        <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 12, color: selected ? '#000' : 'rgba(240,239,235,0.5)' }}>
-                          {initials}
-                        </span>
-                      </div>
-                    )}
+                    <Avatar
+                      src={c.avatar_url}
+                      alt=""
+                      size={32}
+                      background={selected ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.06)'}
+                    >
+                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 12, color: selected ? '#000' : 'rgba(240,239,235,0.5)' }}>
+                        {initials}
+                      </span>
+                    </Avatar>
                     <span className={`text-sm font-medium ${selected ? 'text-black' : 'text-[#F0EFEB]'}`}>
                       {c.display_name ?? 'Unknown musician'}
                     </span>
@@ -328,19 +328,20 @@ export default function BandDetailPage() {
             <div className="absolute inset-0 flex items-center justify-center">
               <div style={{ width: 80, height: 80, borderRadius: '50%',
                 background: 'rgba(255,92,0,0.15)', position: 'absolute', filter: 'blur(30px)' }} />
-              {band.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={band.avatar_url} alt={band.name}
-                  style={{ width: 88, height: 88, borderRadius: 20, objectFit: 'cover',
-                    border: '2px solid rgba(255,92,0,0.6)',
-                    boxShadow: '0 0 24px rgba(255,92,0,0.35)', position: 'relative', zIndex: 1 }} />
-              ) : (
-                <div className="flex items-center justify-center"
-                  style={{ width: 88, height: 88, borderRadius: 20, background: '#1a1a1a',
-                    border: '2px solid rgba(255,92,0,0.5)', position: 'relative', zIndex: 1 }}>
-                  <span className="text-3xl">🎸</span>
-                </div>
-              )}
+              <Avatar
+                src={band.avatar_url}
+                alt={band.name}
+                size={88}
+                shape="rounded"
+                radius={20}
+                border={band.avatar_url ? '2px solid rgba(255,92,0,0.6)' : '2px solid rgba(255,92,0,0.5)'}
+                boxShadow={band.avatar_url ? '0 0 24px rgba(255,92,0,0.35)' : undefined}
+                background="#1a1a1a"
+                style={{ position: 'relative', zIndex: 1 }}
+                priority
+              >
+                <span className="text-3xl">🎸</span>
+              </Avatar>
             </div>
             <p className="absolute bottom-2 left-3 text-[7px] tracking-widest text-[rgba(240,239,235,0.3)]">
               ID # BND-{shortId(band.id)}
@@ -377,15 +378,9 @@ export default function BandDetailPage() {
                     onClick={() => router.push(`/profile/${m.user_id}`)}
                     className="flex w-full items-center gap-2.5 text-left"
                   >
-                    {m.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.avatar_url} alt="" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover' }} />
-                    ) : (
-                      <div className="flex items-center justify-center rounded-full"
-                        style={{ width: 30, height: 30, background: 'rgba(255,255,255,0.06)' }}>
-                        <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 11, color: 'rgba(240,239,235,0.5)' }}>{initials}</span>
-                      </div>
-                    )}
+                    <Avatar src={m.avatar_url} alt="" size={30}>
+                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 11, color: 'rgba(240,239,235,0.5)' }}>{initials}</span>
+                    </Avatar>
                     <span className="flex-1 text-[12px] text-[rgba(240,239,235,0.85)]">{m.display_name ?? 'Unknown'}</span>
                     <span className="text-[8px] tracking-wider text-[rgba(240,239,235,0.3)]">{ROLE_LABEL[m.role]}</span>
                   </button>

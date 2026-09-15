@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
+import Avatar from '@/components/ui/Avatar'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import type { Instrument, Profile } from '@/types'
 
@@ -352,21 +353,17 @@ export default function MessagesPage() {
                   >
                     {/* Band avatar (rounded-square) + people-icon badge */}
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      {row.avatarUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={row.avatarUrl}
-                          alt={row.name}
-                          style={{ width: 50, height: 50, borderRadius: 14, objectFit: 'cover', border: '1.5px solid rgba(240,239,235,0.10)' }}
-                        />
-                      ) : (
-                        <div
-                          className="flex items-center justify-center"
-                          style={{ width: 50, height: 50, borderRadius: 14, background: 'rgba(255,92,0,0.10)', border: '1.5px solid rgba(255,92,0,0.15)' }}
-                        >
-                          <span className="text-lg">🎸</span>
-                        </div>
-                      )}
+                      <Avatar
+                        src={row.avatarUrl}
+                        alt={row.name}
+                        size={50}
+                        shape="rounded"
+                        radius={14}
+                        border={row.avatarUrl ? '1.5px solid rgba(240,239,235,0.10)' : '1.5px solid rgba(255,92,0,0.15)'}
+                        background="rgba(255,92,0,0.10)"
+                      >
+                        <span className="text-lg">🎸</span>
+                      </Avatar>
                       <div style={{
                         position: 'absolute', bottom: -2, right: -2,
                         width: 18, height: 18, borderRadius: '50%',
@@ -437,26 +434,19 @@ export default function MessagesPage() {
                 >
                   {/* Avatar + active dot */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
-                    {partner.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={partner.avatar_url}
-                        alt={partner.display_name ?? ''}
-                        style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover',
-                          border: active ? '2px solid #FF5C00' : '2px solid rgba(240,239,235,0.10)',
-                          boxShadow: active ? '0 0 10px rgba(255,92,0,0.3)' : 'none' }}
-                      />
-                    ) : (
-                      <div
-                        className="flex items-center justify-center"
-                        style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
-                          border: '1.5px solid rgba(240,239,235,0.10)' }}
-                      >
-                        <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 17, color: 'rgba(240,239,235,0.45)' }}>
-                          {initials}
-                        </span>
-                      </div>
-                    )}
+                    <Avatar
+                      src={partner.avatar_url}
+                      alt={partner.display_name ?? ''}
+                      size={50}
+                      border={partner.avatar_url
+                        ? (active ? '2px solid #FF5C00' : '2px solid rgba(240,239,235,0.10)')
+                        : '1.5px solid rgba(240,239,235,0.10)'}
+                      boxShadow={active && partner.avatar_url ? '0 0 10px rgba(255,92,0,0.3)' : undefined}
+                    >
+                      <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 17, color: 'rgba(240,239,235,0.45)' }}>
+                        {initials}
+                      </span>
+                    </Avatar>
                     {active && (
                       <div style={{
                         position: 'absolute', bottom: 1, right: 1,
