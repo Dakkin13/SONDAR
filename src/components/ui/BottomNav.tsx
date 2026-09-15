@@ -8,6 +8,8 @@ import { Home, Search, MessageCircle, User, Bell, X, CalendarDays } from 'lucide
 import { createClient } from '@/lib/supabase/client'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import { fetchUnreadCounts } from '@/lib/data/messages'
+import { messagePreview } from '@/lib/chat/types'
 
 interface BellMessage {
   id: string
@@ -52,18 +54,15 @@ export default function BottomNav() {
   const bellRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const realtimeRef = useRef<any>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bandRealtimeRef = useRef<any>(null)
   const myBandIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const supabase = createClient()
-    let userId: string | null = null
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
     async function check() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      userId = user.id
 
       const { data } = await supabase
         .from('profiles')
@@ -79,64 +78,38 @@ export default function BottomNav() {
         (Array.isArray(data.influences) && data.influences.length === 0)
       setProfileIncomplete(missing)
 
-      // Initial unread badge count (DMs)
-      const { count } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('to_id', user.id)
-        .is('read_at', null)
-
-      // Initial unread badge count (bands)
       const { data: memberships } = await supabase
         .from('band_members')
         .select('band_id')
         .eq('user_id', user.id)
-      const bandIds = (memberships ?? []).map(m => m.band_id)
-      myBandIdsRef.current = new Set(bandIds)
+      myBandIdsRef.current = new Set((memberships ?? []).map(m => m.band_id as string))
 
-      let bandUnread = 0
-      if (bandIds.length > 0) {
-        const { data: bandMsgs } = await supabase
-          .from('band_messages')
-          .select('from_id, read_by')
-          .in('band_id', bandIds)
-        bandUnread = (bandMsgs ?? []).filter(
-          m => m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)
-        ).length
+      // The badge uses the same definition of "unread" as the inbox, and is
+      // recounted (debounced) on any change to either table — so it also goes
+      // DOWN when a thread is read on another screen, instead of only ever
+      // incrementing until the next reload.
+      const refresh = async () => {
+        const counts = await fetchUnreadCounts(supabase, user.id)
+        setUnreadCount(counts.total)
       }
+      await refresh()
 
-      setUnreadCount((count ?? 0) + bandUnread)
-
-      // Real-time subscription for new incoming DMs
+      const scheduleRefresh = () => {
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = setTimeout(() => { void refresh() }, 400)
+      }
       realtimeRef.current = supabase
         .channel(`nav-unread-${user.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-          const msg = payload.new as { to_id: string; read_at: string | null }
-          if (msg.to_id === userId && !msg.read_at) {
-            setUnreadCount(c => c + 1)
-          }
-        })
-        .subscribe()
-
-      // Real-time subscription for new incoming band messages
-      bandRealtimeRef.current = supabase
-        .channel(`nav-unread-bands-${user.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'band_messages' }, (payload) => {
-          const msg = payload.new as { band_id: string; from_id: string }
-          if (msg.from_id !== userId && myBandIdsRef.current.has(msg.band_id)) {
-            setUnreadCount(c => c + 1)
-          }
-        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleRefresh)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'band_messages' }, scheduleRefresh)
         .subscribe()
     }
     void check()
 
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
       if (realtimeRef.current) {
         void createClient().removeChannel(realtimeRef.current)
-      }
-      if (bandRealtimeRef.current) {
-        void createClient().removeChannel(bandRealtimeRef.current)
       }
     }
   }, [])
@@ -171,7 +144,7 @@ export default function BottomNav() {
       // Fetch recent messages received by user
       const { data: msgs } = await supabase
         .from('messages')
-        .select('id, from_id, content, created_at, read_at')
+        .select('*')
         .eq('to_id', user.id)
         .order('created_at', { ascending: false })
         .limit(10)
@@ -190,7 +163,7 @@ export default function BottomNav() {
 
       const dmItems: BellMessage[] = Array.from(seen.values()).map(m => ({
         id: m.id,
-        content: m.content,
+        content: messagePreview(m),
         created_at: m.created_at,
         from_name: pMap.get(m.from_id)?.display_name ?? null,
         from_avatar: pMap.get(m.from_id)?.avatar_url ?? null,
@@ -203,7 +176,7 @@ export default function BottomNav() {
       if (bandIds.length > 0) {
         const { data: bandMsgs } = await supabase
           .from('band_messages')
-          .select('id, band_id, content, created_at, from_id, read_by')
+          .select('*')
           .in('band_id', bandIds)
           .order('created_at', { ascending: false })
           .limit(10)
@@ -220,7 +193,7 @@ export default function BottomNav() {
 
         bandItems = Array.from(bandSeen.values()).map(m => ({
           id: m.id,
-          content: m.content,
+          content: messagePreview(m),
           created_at: m.created_at,
           from_name: bMap.get(m.band_id)?.name ?? null,
           from_avatar: bMap.get(m.band_id)?.avatar_url ?? null,

@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
 import { fetchBandSummaries } from '@/lib/data/bands'
+import { messagePreview } from '@/lib/chat/types'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import type { Instrument, Profile } from '@/types'
 
@@ -35,12 +36,6 @@ type InboxRow =
       lastAt: string
       unreadCount: number
     }
-
-const INSTRUMENT_EMOJI: Record<string, string> = {
-  guitar: '🎸', bass: '🎸', drums: '🥁', keys: '🎹', piano: '🎹',
-  violin: '🎻', cello: '🎻', trumpet: '🎺', saxophone: '🎷', flute: '🪈',
-  vocals: '🎤', producer: '🎚️', dj: '🎧', other: '🎵',
-}
 
 function formatRelativeTime(iso: string): string {
   const d = new Date(iso)
@@ -84,10 +79,11 @@ export default function MessagesPage() {
       setUserId(user.id)
       setLoading(true)
 
-      // Fetch all messages using correct column names (from_id / to_id)
+      // select('*') so image_url / deleted_at are just undefined before the
+      // chat_features migration lands, instead of a failed query.
       const { data: msgs } = await supabase
         .from('messages')
-        .select('id, from_id, to_id, content, created_at, read_at')
+        .select('*')
         .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
 
@@ -126,7 +122,7 @@ export default function MessagesPage() {
               instruments: (profile?.instruments as Instrument[] | null) ?? [],
               last_active: profile?.last_active ?? null,
             },
-            lastContent: msg.content,
+            lastContent: messagePreview(msg),
             lastAt: msg.created_at,
             lastFromMe: msg.from_id === user.id,
             unreadCount: unreadMap.get(partnerId) ?? 0,
@@ -153,7 +149,7 @@ export default function MessagesPage() {
         name: s.band.name,
         avatarUrl: s.band.avatar_url,
         memberCount: s.memberCount,
-        lastContent: s.lastMessage?.content ?? null,
+        lastContent: s.lastMessage ? messagePreview(s.lastMessage) : null,
         lastAt: s.lastMessage?.created_at ?? new Date(0).toISOString(),
         unreadCount: s.unreadCount,
       }))
@@ -175,7 +171,25 @@ export default function MessagesPage() {
       if (document.visibilityState === 'visible') void load()
     }
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+
+    // Live inbox: any message change (new, read, edited, deleted) re-runs the
+    // load, debounced so a burst of events becomes one query.
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const scheduleReload = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { void load() }, 400)
+    }
+    const channel = supabase
+      .channel('inbox-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, scheduleReload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'band_messages' }, scheduleReload)
+      .subscribe()
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      if (timer) clearTimeout(timer)
+      void supabase.removeChannel(channel)
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function rowName(row: InboxRow): string {
