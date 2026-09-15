@@ -156,6 +156,26 @@ Migrations must be idempotent where practical (`IF NOT EXISTS`,
 `DROP POLICY IF EXISTS` before `CREATE POLICY`) and must not change
 user-facing behavior without a matching app change in the same commit.
 
+### Rate limits
+
+`supabase/migrations/20260915000100_rate_limits.sql` enforces per-user insert
+limits in the database with BEFORE INSERT triggers, so they hold even when the
+REST API is called directly (the client-side 1.5 s debounce in the chat pages
+is only a UX nicety, not a control):
+
+| Table | Limit | Keyed by |
+|-------|-------|----------|
+| `messages` | 30 / minute | `from_id` |
+| `band_messages` | 30 / minute | `from_id` |
+| `bands` | 5 / hour | `created_by` |
+| `band_join_requests` | 20 / hour | `invited_by` |
+
+When a limit is hit the insert fails with a human-readable message (surfaced
+as-is by the existing error toasts/banners via `getErrorMessage()`) and
+`hint = 'rate_limited'` for any client that wants to branch on it.
+`service_role` is exempt so admin scripts are never blocked. To change a
+limit, write a new migration that re-creates the trigger with new arguments.
+
 **Routes:** `/bands` (my bands list), `/bands/new` (create wizard), `/bands/[bandId]` (roster/detail), `/bands/[bandId]/settings` (manage), `/messages/band/[bandId]` (group chat — a deliberate fork of `/messages/[userId]/page.tsx`, not a shared component, since read-receipts/typing/channel-naming are pairwise-only in the 1:1 chat code).
 
 ---
