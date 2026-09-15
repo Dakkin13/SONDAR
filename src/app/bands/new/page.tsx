@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getErrorMessage } from '@/lib/utils'
 import { tap } from '@/lib/touch'
 import Avatar from '@/components/ui/Avatar'
+import { fetchConnections } from '@/lib/data/connections'
 import type { ProfileSummary } from '@/types'
 
 type Connection = ProfileSummary
@@ -36,24 +37,7 @@ export default function NewBandPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('from_id, to_id')
-        .or(`from_id.eq.${user.id},to_id.eq.${user.id}`)
-
-      const partnerIds = new Set<string>()
-      for (const m of msgs ?? []) {
-        partnerIds.add(m.from_id === user.id ? m.to_id : m.from_id)
-      }
-
-      if (partnerIds.size === 0) { setConnections([]); setLoadingConnections(false); return }
-
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url')
-        .in('id', Array.from(partnerIds))
-
-      setConnections((profiles as Connection[]) ?? [])
+      setConnections(await fetchConnections(supabase, user.id))
       setLoadingConnections(false)
     }
     void loadConnections()

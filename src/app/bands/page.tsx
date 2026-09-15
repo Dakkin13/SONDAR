@@ -7,10 +7,10 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
-import type { Band } from '@/types'
+import { fetchBandSummaries, type BandSummary } from '@/lib/data/bands'
 
 interface BandRow {
-  band: Band
+  band: BandSummary['band']
   memberCount: number
   lastContent: string | null
   lastAt: string | null
@@ -51,47 +51,14 @@ export default function BandsPage() {
       setUserId(user.id)
       setLoading(true)
 
-      const { data: memberships } = await supabase
-        .from('band_members')
-        .select('band_id')
-        .eq('user_id', user.id)
-
-      const bandIds = (memberships ?? []).map(m => m.band_id)
-      if (bandIds.length === 0) { setRows([]); setLoading(false); return }
-
-      const [{ data: bands }, { data: allMembers }, { data: recentMessages }] = await Promise.all([
-        supabase.from('bands').select('*').in('id', bandIds),
-        supabase.from('band_members').select('band_id').in('band_id', bandIds),
-        supabase
-          .from('band_messages')
-          .select('band_id, content, created_at, from_id, read_by')
-          .in('band_id', bandIds)
-          .order('created_at', { ascending: false }),
-      ])
-
-      const memberCountMap = new Map<string, number>()
-      for (const m of allMembers ?? []) {
-        memberCountMap.set(m.band_id, (memberCountMap.get(m.band_id) ?? 0) + 1)
-      }
-
-      const lastMsgMap = new Map<string, { content: string; created_at: string }>()
-      const unreadMap = new Map<string, number>()
-      for (const m of recentMessages ?? []) {
-        if (!lastMsgMap.has(m.band_id)) {
-          lastMsgMap.set(m.band_id, { content: m.content, created_at: m.created_at })
-        }
-        if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
-          unreadMap.set(m.band_id, (unreadMap.get(m.band_id) ?? 0) + 1)
-        }
-      }
-
-      const built: BandRow[] = (bands ?? [])
-        .map((band) => ({
-          band: band as Band,
-          memberCount: memberCountMap.get(band.id) ?? 1,
-          lastContent: lastMsgMap.get(band.id)?.content ?? null,
-          lastAt: lastMsgMap.get(band.id)?.created_at ?? band.created_at,
-          unreadCount: unreadMap.get(band.id) ?? 0,
+      const summaries = await fetchBandSummaries(supabase, user.id)
+      const built: BandRow[] = summaries
+        .map((s) => ({
+          band: s.band,
+          memberCount: s.memberCount,
+          lastContent: s.lastMessage?.content ?? null,
+          lastAt: s.lastMessage?.created_at ?? s.band.created_at,
+          unreadCount: s.unreadCount,
         }))
         .sort((a, b) => new Date(b.lastAt ?? 0).getTime() - new Date(a.lastAt ?? 0).getTime())
 

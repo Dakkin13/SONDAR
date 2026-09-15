@@ -11,6 +11,7 @@ import type { NearbyMusician, Profile } from '@/types'
 import type { SpacePin } from '@/components/map/SpacesMap'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
+import { fetchBandSummaries } from '@/lib/data/bands'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
 
 const SpacesMap = dynamic(() => import('@/components/map/SpacesMap'), { ssr: false })
@@ -142,38 +143,14 @@ export default function HomePage() {
       if (nearby) setMusicians((nearby as NearbyMusician[]).filter(m => m.id !== user.id))
 
       // ── Your Bands ──────────────────────────────────────────────────────
-      const { data: memberships } = await supabase
-        .from('band_members')
-        .select('band_id')
-        .eq('user_id', user.id)
-
-      const bandIds = (memberships ?? []).map(m => m.band_id)
-      if (bandIds.length > 0) {
-        const [{ data: bands }, { data: allMembers }, { data: recentMessages }] = await Promise.all([
-          supabase.from('bands').select('id, name, avatar_url').in('id', bandIds),
-          supabase.from('band_members').select('band_id').in('band_id', bandIds),
-          supabase.from('band_messages').select('band_id, from_id, read_by').in('band_id', bandIds),
-        ])
-
-        const memberCountMap = new Map<string, number>()
-        for (const m of allMembers ?? []) {
-          memberCountMap.set(m.band_id, (memberCountMap.get(m.band_id) ?? 0) + 1)
-        }
-        const unreadMap = new Map<string, number>()
-        for (const m of recentMessages ?? []) {
-          if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
-            unreadMap.set(m.band_id, (unreadMap.get(m.band_id) ?? 0) + 1)
-          }
-        }
-
-        setMyBands((bands ?? []).map(b => ({
-          id: b.id,
-          name: b.name,
-          avatar_url: b.avatar_url,
-          memberCount: memberCountMap.get(b.id) ?? 1,
-          unreadCount: unreadMap.get(b.id) ?? 0,
-        })))
-      }
+      const bandSummaries = await fetchBandSummaries(supabase, user.id)
+      setMyBands(bandSummaries.map(s => ({
+        id: s.band.id,
+        name: s.band.name,
+        avatar_url: s.band.avatar_url,
+        memberCount: s.memberCount,
+        unreadCount: s.unreadCount,
+      })))
 
       setLoading(false)
     }

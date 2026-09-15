@@ -7,6 +7,7 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
+import { fetchBandSummaries } from '@/lib/data/bands'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import type { Instrument, Profile } from '@/types'
 
@@ -145,45 +146,17 @@ export default function MessagesPage() {
       const dmRows: InboxRow[] = visible.map(c => ({ type: 'dm', key: `dm-${c.partner.id}`, data: c }))
 
       // ── Bands — merge into the same unified inbox ──────────────────────────
-      const { data: memberships } = await supabase
-        .from('band_members')
-        .select('band_id')
-        .eq('user_id', user.id)
-
-      const bandIds = (memberships ?? []).map(m => m.band_id)
-      let bandRows: InboxRow[] = []
-      if (bandIds.length > 0) {
-        const [{ data: bands }, { data: allMembers }, { data: recentMessages }] = await Promise.all([
-          supabase.from('bands').select('id, name, avatar_url').in('id', bandIds),
-          supabase.from('band_members').select('band_id').in('band_id', bandIds),
-          supabase.from('band_messages').select('band_id, content, created_at, from_id, read_by').in('band_id', bandIds),
-        ])
-
-        const memberCountMap = new Map<string, number>()
-        for (const m of allMembers ?? []) {
-          memberCountMap.set(m.band_id, (memberCountMap.get(m.band_id) ?? 0) + 1)
-        }
-        const lastMsgMap = new Map<string, { content: string; created_at: string }>()
-        const unreadMap = new Map<string, number>()
-        for (const m of (recentMessages ?? []).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())) {
-          if (!lastMsgMap.has(m.band_id)) lastMsgMap.set(m.band_id, { content: m.content, created_at: m.created_at })
-          if (m.from_id !== user.id && !(m.read_by ?? []).includes(user.id)) {
-            unreadMap.set(m.band_id, (unreadMap.get(m.band_id) ?? 0) + 1)
-          }
-        }
-
-        bandRows = (bands ?? []).map(b => ({
-          type: 'band' as const,
-          key: `band-${b.id}`,
-          bandId: b.id,
-          name: b.name,
-          avatarUrl: b.avatar_url,
-          memberCount: memberCountMap.get(b.id) ?? 1,
-          lastContent: lastMsgMap.get(b.id)?.content ?? null,
-          lastAt: lastMsgMap.get(b.id)?.created_at ?? new Date(0).toISOString(),
-          unreadCount: unreadMap.get(b.id) ?? 0,
-        }))
-      }
+      const bandRows: InboxRow[] = (await fetchBandSummaries(supabase, user.id)).map(s => ({
+        type: 'band' as const,
+        key: `band-${s.band.id}`,
+        bandId: s.band.id,
+        name: s.band.name,
+        avatarUrl: s.band.avatar_url,
+        memberCount: s.memberCount,
+        lastContent: s.lastMessage?.content ?? null,
+        lastAt: s.lastMessage?.created_at ?? new Date(0).toISOString(),
+        unreadCount: s.unreadCount,
+      }))
 
       const merged = [...dmRows, ...bandRows].sort((a, b) => {
         const at = a.type === 'dm' ? a.data.lastAt : a.lastAt

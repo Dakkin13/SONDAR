@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Band, BandMemberProfile, BandRole, ProfileSummary } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
+import { fetchConnections } from '@/lib/data/connections'
 import { useToast } from '@/components/ui/Toast'
 import { getErrorMessage } from '@/lib/utils'
 import { tap } from '@/lib/touch'
@@ -113,20 +114,7 @@ export default function BandDetailPage() {
   async function openInvite() {
     setShowInvite(true)
     if (connections.length > 0 || !currentUserId) return
-    const { data: msgs } = await supabase
-      .from('messages')
-      .select('from_id, to_id')
-      .or(`from_id.eq.${currentUserId},to_id.eq.${currentUserId}`)
-    const partnerIds = new Set<string>()
-    for (const m of msgs ?? []) {
-      partnerIds.add(m.from_id === currentUserId ? m.to_id : m.from_id)
-    }
-    const memberIds = new Set(members.map(m => m.user_id))
-    const candidateIds = Array.from(partnerIds).filter(id => !memberIds.has(id))
-    if (candidateIds.length === 0) { setConnections([]); return }
-    const { data: profiles } = await supabase
-      .from('profiles').select('id, display_name, avatar_url').in('id', candidateIds)
-    setConnections((profiles as Connection[]) ?? [])
+    setConnections(await fetchConnections(supabase, currentUserId, { exclude: members.map(m => m.user_id) }))
   }
 
   useEscapeKey(showInvite, () => setShowInvite(false))
