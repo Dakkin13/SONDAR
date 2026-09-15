@@ -649,13 +649,18 @@ export default function ExplorePage() {
   return (
     <div className="relative" style={{ minHeight: '100dvh' }}>
       {/* ── Fixed top bar ── */}
-      <div className="fixed left-0 right-0 top-0 z-20 px-3 pt-3 sm:px-4 sm:pt-4">
+      <div
+        className="fixed left-0 right-0 top-0 z-20 px-3 sm:px-4"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+      >
         <div
-          className="glass flex min-w-0 flex-col gap-2.5 rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3"
+          className="glass mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-2.5 rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3"
           style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
         >
-          {/* Row 1: wordmark + active toggle + count */}
-          <div className="flex items-center gap-2">
+          {/* Row 1: wordmark + active toggle + count. Right padding keeps the
+              count clear of the fixed notification bell until the bar is inset
+              from the viewport edge on wide screens. */}
+          <div className="flex items-center gap-2 pr-9 min-[1400px]:pr-0">
             <Link
               href="/"
               className="flex-shrink-0 text-[22px] leading-none tracking-[0.08em] text-[#F0EFEB]"
@@ -666,7 +671,7 @@ export default function ExplorePage() {
             <div className="flex flex-1 items-center justify-end gap-2 min-w-0">
               <button
                 onClick={() => setActiveOnly((v) => !v)}
-                className="shrink-0 rounded-xl border px-2.5 py-1 text-[10px] font-medium transition-all duration-150"
+                className="shrink-0 rounded-xl border px-3 py-2 text-[10px] font-medium transition-all duration-150"
                 style={
                   activeOnly
                     ? { borderColor: 'rgba(184,255,0,0.4)', background: 'rgba(184,255,0,0.10)', color: '#B8FF00' }
@@ -695,13 +700,14 @@ export default function ExplorePage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search by name or city…"
-              className="w-full rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] py-1.5 pl-8 pr-3 text-[11px] text-[rgba(240,239,235,0.8)] placeholder-[rgba(240,239,235,0.3)] outline-none focus:border-[rgba(255,92,0,0.4)]"
+              className="w-full rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] py-2.5 pl-8 pr-10 text-[11px] text-[rgba(240,239,235,0.8)] placeholder-[rgba(240,239,235,0.3)] outline-none focus:border-[rgba(255,92,0,0.4)]"
             />
             {search && (
               <button
                 onClick={() => setSearch('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
-                style={{ fontSize: 14, lineHeight: 1 }}
+                style={{ fontSize: 16, lineHeight: 1, padding: 12, margin: -12 }}
+                aria-label="Clear search"
               >×</button>
             )}
           </div>
@@ -711,7 +717,7 @@ export default function ExplorePage() {
             <select
               value={instrument}
               onChange={(e) => setInstrument(e.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] px-2.5 py-1.5 text-[11px] text-[rgba(240,239,235,0.7)] outline-none focus:border-[rgba(255,92,0,0.4)]"
+              className="min-w-0 flex-1 rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] px-2.5 py-2.5 text-[11px] text-[rgba(240,239,235,0.7)] outline-none focus:border-[rgba(255,92,0,0.4)]"
               style={{ appearance: 'none' }}
             >
               {INSTRUMENT_OPTIONS.map((opt) => (
@@ -724,7 +730,7 @@ export default function ExplorePage() {
             <select
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] px-2.5 py-1.5 text-[11px] text-[rgba(240,239,235,0.7)] outline-none focus:border-[rgba(255,92,0,0.4)]"
+              className="min-w-0 flex-1 rounded-xl border border-[rgba(240,239,235,0.10)] bg-[rgba(240,239,235,0.05)] px-2.5 py-2.5 text-[11px] text-[rgba(240,239,235,0.7)] outline-none focus:border-[rgba(255,92,0,0.4)]"
               style={{ appearance: 'none' }}
             >
               {OBJECTIVE_OPTIONS.map((opt) => (
@@ -737,7 +743,7 @@ export default function ExplorePage() {
             {hasFilters && (
               <button
                 onClick={clearFilters}
-                className="shrink-0 rounded-xl border border-[rgba(240,239,235,0.10)] bg-transparent px-2.5 py-1.5 text-[11px] text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
+                className="shrink-0 rounded-xl border border-[rgba(240,239,235,0.10)] bg-transparent px-3 py-2.5 text-[11px] text-[rgba(240,239,235,0.4)] transition-colors hover:text-[#F0EFEB]"
               >
                 Clear
               </button>
@@ -749,8 +755,8 @@ export default function ExplorePage() {
       {/* ── Scrollable card grid ── */}
       <div
         ref={scrollRef}
-        className="px-3 pb-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] sm:px-4"
-        style={{ paddingTop: 'calc(178px + env(safe-area-inset-top, 0px))' }}
+        className="mx-auto max-w-7xl px-3 pb-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] sm:px-4"
+        style={{ paddingTop: 'calc(202px + env(safe-area-inset-top, 0px))' }}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -762,7 +768,7 @@ export default function ExplorePage() {
         )}
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
@@ -771,7 +777,7 @@ export default function ExplorePage() {
           <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filtered.map((m, i) => (
                 <MusicianProfileCard key={m.id} musician={m} index={i} connectedIds={connectedIds} currentUserId={currentUserId} userInstruments={userInstruments} onMessage={(id) => router.push(`/messages/${id}`)} />
               ))}

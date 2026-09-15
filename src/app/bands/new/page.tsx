@@ -144,7 +144,7 @@ export default function NewBandPage() {
       )}
 
       {/* Progress bar */}
-      <div className="fixed left-0 right-0 top-0 z-50 h-[3px] bg-[rgba(240,239,235,0.08)]">
+      <div className="fixed left-0 right-0 z-50 h-[3px] bg-[rgba(240,239,235,0.08)]" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <div
           className="h-full bg-[#FF5500] shadow-[0_0_8px_rgba(255,85,0,0.6)] transition-[width] duration-300"
           style={{ width: `${progressPct}%` }}
@@ -155,14 +155,15 @@ export default function NewBandPage() {
         type="button"
         onClick={() => router.push('/bands')}
         className="fixed left-4 top-4 z-50 text-xs text-[rgba(240,239,235,0.28)] hover:text-[rgba(240,239,235,0.6)] transition-colors"
+        style={{ top: 'calc(16px + env(safe-area-inset-top, 0px))', padding: 12, margin: -12 }}
       >
         Cancel
       </button>
-      <div className="fixed right-4 top-4 z-50 text-xs text-[rgba(240,239,235,0.35)]">
+      <div className="fixed right-4 top-4 z-50 text-xs text-[rgba(240,239,235,0.35)]" style={{ top: 'calc(16px + env(safe-area-inset-top, 0px))' }}>
         {step} / {TOTAL_STEPS}
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center px-4" style={{ paddingTop: 60, paddingBottom: 100 }}>
+      <div className="flex flex-1 flex-col items-center justify-center px-4" style={{ paddingTop: 'calc(60px + env(safe-area-inset-top, 0px))', paddingBottom: 100 }}>
         <div className="w-full max-w-lg">
           {step === 1 && (
             <div className="flex flex-col gap-6">

@@ -265,7 +265,7 @@ export default function MyProfilePage() {
       </div>
 
       {/* Top action bar */}
-      <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-5">
+      <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-4 pt-5" style={{ paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))' }}>
         <button onClick={() => router.push('/home')}
           className="flex items-center gap-1.5 rounded-full border border-[rgba(240,239,235,0.10)] bg-[rgba(13,13,13,0.65)] px-3 py-2 text-[12px] font-medium text-[rgba(240,239,235,0.55)] backdrop-blur-xl transition-colors hover:border-[rgba(240,239,235,0.2)] hover:text-[#F0EFEB]">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>

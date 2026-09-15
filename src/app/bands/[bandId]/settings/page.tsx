@@ -138,13 +138,14 @@ export default function BandSettingsPage() {
       <div
         className="sticky top-0 z-10 px-4 py-4"
         style={{
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
           background: 'rgba(13,13,13,0.92)',
           backdropFilter: 'blur(48px) saturate(180%)',
           WebkitBackdropFilter: 'blur(48px) saturate(180%)',
           borderBottom: '0.5px solid rgba(255,255,255,0.08)',
         }}
       >
-        <div className="mx-auto max-w-lg flex items-center justify-between gap-3">
+        <div className="mx-auto max-w-lg md:max-w-2xl flex items-center justify-between gap-3">
           <h1 className="text-[#F0EFEB]" style={{ fontFamily: 'var(--font-bebas)', fontSize: 24, letterSpacing: '0.08em' }}>
             BAND SETTINGS
           </h1>
@@ -157,7 +158,7 @@ export default function BandSettingsPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-lg px-4 pt-5 pb-24">
+      <div className="mx-auto max-w-lg md:max-w-2xl px-4 pt-5 pb-24">
         {/* Avatar */}
         <div className="mb-6 flex flex-col items-center gap-2">
           <button

@@ -629,7 +629,7 @@ export default function ChatPage() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', damping: 28, stiffness: 340 }}
-              className="w-full max-w-lg rounded-t-3xl p-6"
+              className="w-full max-w-lg md:max-w-2xl rounded-t-3xl p-6"
               style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
               onClick={e => e.stopPropagation()}
             >
@@ -673,7 +673,7 @@ export default function ChatPage() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', damping: 28, stiffness: 340 }}
-              className="w-full max-w-lg rounded-t-3xl p-6"
+              className="w-full max-w-lg md:max-w-2xl rounded-t-3xl p-6"
               style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)' }}
               onClick={e => e.stopPropagation()}
             >
@@ -714,13 +714,13 @@ export default function ChatPage() {
           paddingBottom: 12,
         }}
       >
-        <div className="mx-auto flex max-w-lg items-center gap-3">
+        <div className="mx-auto flex max-w-lg md:max-w-2xl items-center gap-3">
           {/* Back */}
           <button
             onClick={() => router.push('/messages')}
             onTouchEnd={(e) => { e.preventDefault(); router.push('/messages') }}
             className="flex-shrink-0 text-[rgba(240,239,235,0.5)] transition-colors hover:text-[#F0EFEB]"
-            style={{ fontSize: 22, lineHeight: 1, padding: '8px 12px 8px 4px', touchAction: 'manipulation' }}
+            style={{ fontSize: 22, lineHeight: 1, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: -8, touchAction: 'manipulation' }}
             aria-label="Back"
           >
             ‹
@@ -866,7 +866,7 @@ export default function ChatPage() {
 
       {/* ── Messages list ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="mx-auto max-w-lg">
+        <div className="mx-auto max-w-lg md:max-w-2xl">
           {loading ? (
             <div className="flex items-center justify-center py-24">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
@@ -1072,7 +1072,7 @@ export default function ChatPage() {
           paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         }}
       >
-        <div className="mx-auto flex max-w-lg items-end gap-3">
+        <div className="mx-auto flex max-w-lg md:max-w-2xl items-end gap-3">
           <textarea
             ref={inputRef}
             value={input}

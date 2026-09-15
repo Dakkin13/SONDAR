@@ -226,6 +226,7 @@ export default function EventsPage() {
       <div
         className="sticky top-0 z-10 px-4 py-4"
         style={{
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
           background: 'rgba(13,13,13,0.92)',
           backdropFilter: 'blur(48px) saturate(180%)',
           WebkitBackdropFilter: 'blur(48px) saturate(180%)',

@@ -465,7 +465,10 @@ export default function SettingsPage() {
         )}
 
         {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-4 backdrop-blur-md">
+        <div
+          className="sticky top-0 z-10 border-b border-[rgba(240,239,235,0.06)] bg-[rgba(13,13,13,0.92)] px-4 py-4 backdrop-blur-md"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+        >
           <div className="mx-auto flex max-w-lg items-center justify-between">
             <div className="flex items-center gap-3">
               <button

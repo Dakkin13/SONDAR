@@ -217,7 +217,8 @@ export default function HomePage() {
         variants={stagger}
         initial="hidden"
         animate="show"
-        style={{ paddingTop: 56, paddingLeft: 20, paddingRight: 20 }}
+        className="mx-auto w-full max-w-3xl"
+        style={{ paddingTop: 'calc(56px + env(safe-area-inset-top, 0px))', paddingLeft: 20, paddingRight: 20 }}
       >
 
         {/* ── Header ── floating, transparent */}

@@ -383,7 +383,7 @@ export default function BottomNav() {
     </AnimatePresence>
 
     {/* Notification bell + popup — always visible, top-right */}
-    <div ref={bellRef} style={{ position: 'fixed', top: 12, right: 16, zIndex: 100 }}>
+    <div ref={bellRef} style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top, 0px))', right: 16, zIndex: 100 }}>
       {/* Bell button */}
       <button
         type="button"
@@ -393,8 +393,8 @@ export default function BottomNav() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          width: 36,
-          height: 36,
+          width: 40,
+          height: 40,
           borderRadius: '50%',
           background: bellOpen ? 'rgba(255,92,0,0.15)' : 'rgba(13,13,13,0.7)',
           border: bellOpen ? '1px solid rgba(255,92,0,0.35)' : '1px solid rgba(255,255,255,0.10)',
@@ -438,7 +438,7 @@ export default function BottomNav() {
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             style={{
               position: 'absolute',
-              top: 44,
+              top: 48,
               right: 0,
               width: 'min(320px, calc(100vw - 32px))',
               background: 'rgba(18,18,18,0.96)',

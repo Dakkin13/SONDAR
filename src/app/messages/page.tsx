@@ -218,13 +218,14 @@ export default function MessagesPage() {
       <div
         className="sticky top-0 z-10 px-4 py-4"
         style={{
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)',
           background: 'rgba(13,13,13,0.92)',
           backdropFilter: 'blur(48px) saturate(180%)',
           WebkitBackdropFilter: 'blur(48px) saturate(180%)',
           borderBottom: '0.5px solid rgba(255,255,255,0.08)',
         }}
       >
-        <div className="mx-auto max-w-lg flex items-center justify-between gap-3">
+        <div className="mx-auto max-w-lg md:max-w-2xl flex items-center justify-between gap-3">
           <div>
             <h1
               className="text-[#F0EFEB]"
@@ -247,7 +248,7 @@ export default function MessagesPage() {
         </div>
         {/* Search input */}
         {inboxRows.length > 0 && (
-          <div className="mx-auto max-w-lg mt-2">
+          <div className="mx-auto max-w-lg md:max-w-2xl mt-2">
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.25)]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -264,6 +265,8 @@ export default function MessagesPage() {
                 <button
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgba(240,239,235,0.3)] hover:text-[#F0EFEB]"
+                  style={{ fontSize: 18, lineHeight: 1, padding: 12, margin: -12 }}
+                  aria-label="Clear search"
                 >
                   ×
                 </button>
@@ -273,7 +276,7 @@ export default function MessagesPage() {
         )}
       </div>
 
-      <div className="mx-auto max-w-lg px-4 pt-3 pb-24">
+      <div className="mx-auto max-w-lg md:max-w-2xl px-4 pt-3 pb-24">
         {/* Push notification prompt */}
         {!loading && !pushDismissed && permission === 'default' && inboxRows.length > 0 && (
           <div

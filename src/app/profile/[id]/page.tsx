@@ -292,7 +292,7 @@ export default function ProfilePage() {
       {/* Back button */}
       <button onClick={() => router.push('/explore')}
         className="absolute left-4 top-4 z-10 rounded-xl bg-[rgba(13,13,13,0.6)] px-3 py-2 text-sm font-medium text-[rgba(240,239,235,0.6)] backdrop-blur-md transition-colors hover:text-[#F0EFEB]"
-        style={{ backdropFilter: 'blur(20px)' }}>
+        style={{ backdropFilter: 'blur(20px)', top: 'calc(16px + env(safe-area-inset-top, 0px))', minHeight: 44 }}>
         ← Explore
       </button>
 
@@ -302,7 +302,7 @@ export default function ProfilePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className="mx-auto px-4 pt-16"
-        style={{ maxWidth: 480 }}
+        style={{ maxWidth: 480, paddingTop: 'calc(64px + env(safe-area-inset-top, 0px))' }}
       >
         {/* Profile card */}
         <div
