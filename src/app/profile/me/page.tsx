@@ -4,26 +4,16 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import type { Instrument, Genre, Objective } from '@/types'
+import type { Profile } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 
-interface ProfileData {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-  bio: string | null
-  instruments: Instrument[]
-  genres: Genre[]
-  objective: Objective | null
-  level: string | null
-  city: string | null
-  audio_url: string | null
-  instagram_url: string | null
-  last_active: string | null
-  photo_urls: string[]
-  influences: string[] | null
-}
+type ProfileData = Pick<
+  Profile,
+  | 'id' | 'display_name' | 'avatar_url' | 'bio' | 'instruments' | 'genres' | 'objective'
+  | 'level' | 'city' | 'audio_url' | 'instagram_url' | 'last_active' | 'photo_urls'
+  | 'influences' | 'profile_views'
+>
 
 async function fetchArtistThumb(name: string): Promise<string | null> {
   try {

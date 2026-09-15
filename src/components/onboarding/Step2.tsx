@@ -1,10 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import type { Objective } from '@/types'
-
-type Level = 'beginner' | 'intermediate' | 'advanced' | 'professional'
-type Availability = 'weekday-evenings' | 'weekends' | 'flexible'
+import type { Availability, Level, Objective } from '@/types'
 
 const OBJECTIVES: { value: Objective; label: string; emoji: string; subtitle: string }[] = [
   { value: 'jam',          label: 'Casual jam',      emoji: '🎶', subtitle: 'Low-key sessions, no pressure' },

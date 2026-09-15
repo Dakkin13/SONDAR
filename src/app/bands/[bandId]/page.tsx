@@ -4,16 +4,12 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import type { Band, BandMemberProfile, BandRole } from '@/types'
+import type { Band, BandMemberProfile, BandRole, ProfileSummary } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 import { getErrorMessage } from '@/lib/utils'
 
-interface Connection {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-}
+type Connection = ProfileSummary
 
 interface PendingRequest {
   id: string

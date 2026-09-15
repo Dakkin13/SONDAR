@@ -6,24 +6,10 @@ import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
+import type { Message, Profile } from '@/types'
 
-interface OtherProfile {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-  instruments?: string[]
-  last_active?: string | null
-}
-
-interface ChatMessage {
-  id: string
-  created_at: string
-  from_id: string
-  to_id: string
-  content: string
-  read_at: string | null
-  liked_by: string[]
-}
+type OtherProfile = Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'instruments' | 'last_active'>
+type ChatMessage = Message
 
 function formatBubbleTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

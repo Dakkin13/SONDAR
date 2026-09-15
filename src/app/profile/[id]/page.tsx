@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import type { Instrument, Genre, Objective } from '@/types'
+import type { Profile } from '@/types'
 import BottomNav from '@/components/ui/BottomNav'
 import { useToast } from '@/components/ui/Toast'
 
@@ -54,24 +54,12 @@ function ArtistChip({ name, imageUrl }: { name: string; imageUrl: string | null 
   )
 }
 
-interface ProfileData {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-  bio: string | null
-  instruments: Instrument[]
-  genres: Genre[]
-  objective: Objective | null
-  level: string | null
-  city: string | null
-  audio_url: string | null
-  instagram_url: string | null
-  last_active: string | null
-  photo_urls: string[]
-  influences: string[] | null
-  profile_views: number | null
-  created_at: string | null
-}
+type ProfileData = Pick<
+  Profile,
+  | 'id' | 'display_name' | 'avatar_url' | 'bio' | 'instruments' | 'genres' | 'objective'
+  | 'level' | 'city' | 'audio_url' | 'instagram_url' | 'last_active' | 'photo_urls'
+  | 'influences' | 'location' | 'profile_views' | 'created_at'
+>
 
 const INSTRUMENT_EMOJI: Record<string, string> = {
   guitar: '🎸', bass: '🎸', drums: '🥁', keys: '🎹', piano: '🎹',
@@ -477,7 +465,7 @@ export default function ProfilePage() {
           {(profile.photo_urls?.length ?? 0) > 0 && (
             <div className="mx-5 mb-3 border-t border-[rgba(240,239,235,0.06)] pt-3">
               <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
-                {profile.photo_urls.map((url, i) => (
+                {(profile.photo_urls ?? []).map((url, i) => (
                   <button
                     key={url + i}
                     onClick={() => setLightboxUrl(url)}

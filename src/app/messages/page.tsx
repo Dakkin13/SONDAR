@@ -7,14 +7,9 @@ import { motion } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import BottomNav from '@/components/ui/BottomNav'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import type { Instrument, Profile } from '@/types'
 
-interface ConversationPartner {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-  instruments: string[]
-  last_active: string | null
-}
+type ConversationPartner = Pick<Profile, 'id' | 'display_name' | 'avatar_url' | 'instruments' | 'last_active'>
 
 interface Conversation {
   partner: ConversationPartner
@@ -126,7 +121,7 @@ export default function MessagesPage() {
               id: partnerId,
               display_name: profile?.display_name ?? null,
               avatar_url: profile?.avatar_url ?? null,
-              instruments: (profile?.instruments as string[]) ?? [],
+              instruments: (profile?.instruments as Instrument[] | null) ?? [],
               last_active: profile?.last_active ?? null,
             },
             lastContent: msg.content,

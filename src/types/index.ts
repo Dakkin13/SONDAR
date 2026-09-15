@@ -40,26 +40,53 @@ export type Genre =
 // toObjectiveEnum() in onboarding/page.tsx maps these to DB enum values before upsert.
 export type Objective = 'jam' | 'form-band' | 'record' | 'perform-live'
 
+// What the DB actually stores in profiles.objective (underscore enum values).
+// Legacy rows may still hold the dash-style UI values, which is why display
+// lookups (OBJECTIVE_LABEL maps) accept both.
+export type ObjectiveDb = 'casual_jam' | 'form_band' | 'studio_sessions' | 'live_gigs'
+
+export type Level = 'beginner' | 'intermediate' | 'advanced' | 'professional'
+export type Availability = 'weekday-evenings' | 'weekends' | 'flexible'
+
+// GeoJSON Point as PostgREST returns the PostGIS `location` geography column.
+export interface GeoPoint {
+  type?: string
+  coordinates?: [number, number]
+}
+
+// Mirrors public.profiles exactly — one row, real column names.
+// Pages that select a subset should derive it with Pick<Profile, ...>
+// rather than redeclaring the shape.
 export interface Profile {
   id: string
-  created_at: string
-  updated_at: string
-  username: string | null
   display_name: string | null
-  avatar_url: string | null
+  city: string | null
+  lat: number | null
+  lng: number | null
+  location: GeoPoint | null
   bio: string | null
+  audio_url: string | null
+  avatar_url: string | null
+  photo_urls: string[] | null
   instruments: Instrument[]
   genres: Genre[]
-  objectives: Objective[]
-  location_name: string | null
-  location_lat: number | null
-  location_lng: number | null
-  experience_years: number | null
-  spotify_url: string | null
-  soundcloud_url: string | null
+  objective: ObjectiveDb | Objective | null
+  level: Level | null
+  availability: Availability[]
+  influences: string[] | null
   instagram_url: string | null
+  years_practicing: string | null
+  age_range: string | null
+  band_experience: string | null
+  profile_views: number | null
   is_onboarded: boolean
+  last_active: string | null
+  created_at: string | null
+  updated_at: string | null
 }
+
+// The three columns nearly every list/avatar UI needs.
+export type ProfileSummary = Pick<Profile, 'id' | 'display_name' | 'avatar_url'>
 
 export interface NearbyMusician {
   id: string
@@ -79,13 +106,15 @@ export interface NearbyMusician {
   influences?: string[] | null
 }
 
+// Mirrors public.messages exactly (1:1 DMs).
 export interface Message {
   id: string
   created_at: string
-  sender_id: string
-  recipient_id: string
+  from_id: string
+  to_id: string
   content: string
   read_at: string | null
+  liked_by: string[]
 }
 
 // ── Bands ──────────────────────────────────────────────────────────────────

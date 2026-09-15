@@ -4,12 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getErrorMessage } from '@/lib/utils'
+import type { ProfileSummary } from '@/types'
 
-interface Connection {
-  id: string
-  display_name: string | null
-  avatar_url: string | null
-}
+type Connection = ProfileSummary
 
 // tap() fires on touch devices via touchend (with preventDefault so no double-fire)
 // and falls back to onClick on desktop — same pattern used in onboarding/Step1.tsx.

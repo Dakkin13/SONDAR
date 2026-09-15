@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase/client'
-import type { NearbyMusician, Instrument } from '@/types'
+import type { NearbyMusician, Profile } from '@/types'
 import type { SpacePin } from '@/components/map/SpacesMap'
 import BottomNav from '@/components/ui/BottomNav'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
@@ -44,22 +44,11 @@ const SPACE_PINS: SpacePin[] = [
 const DEFAULT_LAT = 40.4168
 const DEFAULT_LNG = -3.7038
 
-interface ProfileRow {
-  id: string
-  display_name: string | null
-  city: string | null
-  lat: number | null
-  lng: number | null
-  avatar_url: string | null
-  bio: string | null
-  audio_url: string | null
-  instruments: Instrument[]
-  genres: string[]
-  years_practicing: string | null
-  age_range: string | null
-  band_experience: string | null
-  influences: string[] | null
-}
+type ProfileRow = Pick<
+  Profile,
+  | 'id' | 'display_name' | 'city' | 'lat' | 'lng' | 'avatar_url' | 'bio' | 'audio_url'
+  | 'instruments' | 'genres' | 'years_practicing' | 'age_range' | 'band_experience' | 'influences'
+>
 
 interface BandSummary {
   id: string

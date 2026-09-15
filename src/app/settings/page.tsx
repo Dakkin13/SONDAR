@@ -6,12 +6,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import CityAutocomplete from '@/components/onboarding/CityAutocomplete'
-import type { Genre, Instrument, Objective } from '@/types'
+import type { Availability, Genre, Instrument, Level, Objective } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type Level = 'beginner' | 'intermediate' | 'advanced' | 'professional'
-type Availability = 'weekday-evenings' | 'weekends' | 'flexible'
 
 interface SettingsForm {
   displayName: string

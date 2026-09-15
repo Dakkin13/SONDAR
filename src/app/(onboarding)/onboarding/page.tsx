@@ -4,14 +4,11 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Genre, Instrument, Objective } from '@/types'
+import type { Availability, Genre, Instrument, Level, Objective } from '@/types'
 import Step1 from '@/components/onboarding/Step1'
 import Step2 from '@/components/onboarding/Step2'
 import Step3 from '@/components/onboarding/Step3'
 import Confirmation from '@/components/onboarding/Confirmation'
-
-type Level = 'beginner' | 'intermediate' | 'advanced' | 'professional'
-type Availability = 'weekday-evenings' | 'weekends' | 'flexible'
 
 // Maps form values → DB enum values (objective_type column uses underscores)
 function toObjectiveEnum(value: Objective | null): string | null {
