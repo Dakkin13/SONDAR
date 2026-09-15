@@ -105,71 +105,14 @@ The profiles table lives at `public.profiles`. Row-level security is enabled; th
 | `last_active` | timestamptz | nullable — updated by `touch_last_active()` RPC |
 | `updated_at` | timestamptz | set on every upsert |
 
-**SQL to add any missing columns:**
-```sql
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS city text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lat double precision;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lng double precision;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS objective text[];
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS level text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS availability text[] NOT NULL DEFAULT '{}';
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS audio_url text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS instagram_url text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_onboarded boolean NOT NULL DEFAULT false;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_active timestamptz;
-```
+The full column list, the `messages` / `waves` tables, and every RPC
+(`get_nearby_musicians(user_lat, user_lng, radius_km)`, `touch_last_active`,
+`set_user_location`, `increment_profile_views`) live in
+`supabase/migrations/20260915000000_baseline.sql` — see **Database workflow**
+below. Do not paste SQL into the dashboard by hand any more; write a migration.
 
-**SQL for the Explore page RPCs:**
-```sql
--- Returns musicians near a point, ordered by distance
-CREATE OR REPLACE FUNCTION get_nearby_musicians(
-  lat double precision,
-  lng double precision,
-  radius_km double precision DEFAULT 50
-)
-RETURNS TABLE (
-  id uuid,
-  display_name text,
-  avatar_url text,
-  instruments text[],
-  genres text[],
-  objective text[],
-  bio text,
-  lat double precision,
-  lng double precision,
-  city text,
-  last_active timestamptz,
-  distance_km double precision
-)
-LANGUAGE sql STABLE
-AS $$
-  SELECT
-    id, display_name, avatar_url, instruments, genres, objective, bio,
-    lat, lng, city, last_active,
-    earth_distance(
-      ll_to_earth(profiles.lat, profiles.lng),
-      ll_to_earth(get_nearby_musicians.lat, get_nearby_musicians.lng)
-    ) / 1000 AS distance_km
-  FROM public.profiles
-  WHERE
-    is_onboarded = true
-    AND profiles.lat IS NOT NULL
-    AND profiles.lng IS NOT NULL
-    AND earth_distance(
-      ll_to_earth(profiles.lat, profiles.lng),
-      ll_to_earth(get_nearby_musicians.lat, get_nearby_musicians.lng)
-    ) / 1000 <= radius_km
-  ORDER BY distance_km ASC;
-$$;
-
--- Updates last_active for the calling user
-CREATE OR REPLACE FUNCTION touch_last_active()
-RETURNS void
-LANGUAGE sql SECURITY DEFINER
-AS $$
-  UPDATE public.profiles SET last_active = NOW() WHERE id = auth.uid();
-$$;
-```
+Note: `profiles.objective` is a single text value (the app upserts one
+underscore-style enum string via `toObjectiveEnum()`), not an array.
 
 ---
 
@@ -181,124 +124,37 @@ Adds group-chat support: users can form a named "band" (a group of musicians) wi
 
 **v1 scope decision:** band membership at creation time is limited to people the creator already has a DM thread with (no stranger search exists anywhere in the app yet) — auto-added directly to `band_members`, no accept step, mirroring how WhatsApp/Telegram let you add existing contacts to a new group directly. Inviting someone into an *existing* band is a separate, real accept/decline flow via `band_join_requests`, since that invitee might not personally know the inviter.
 
-**SQL to run once (paste directly into Supabase → SQL Editor):**
-```sql
--- ─────────────────────────────────────────────────────────────
--- BANDS
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.bands (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  avatar_url text,
-  bio text,
-  created_by uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE public.bands ENABLE ROW LEVEL SECURITY;
+**Schema:** tables, helper functions, and RLS policies are in
+`supabase/migrations/20260915000000_baseline.sql` (this SQL was created from
+that exact file, so it is authoritative for the bands tables).
 
--- ─────────────────────────────────────────────────────────────
--- BAND_MEMBERS (roster + role)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.band_members (
-  band_id uuid NOT NULL REFERENCES public.bands(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  role text NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
-  joined_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (band_id, user_id)
-);
-ALTER TABLE public.band_members ENABLE ROW LEVEL SECURITY;
+---
 
--- ─────────────────────────────────────────────────────────────
--- BAND_JOIN_REQUESTS (invites to an *existing* band)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.band_join_requests (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  band_id uuid NOT NULL REFERENCES public.bands(id) ON DELETE CASCADE,
-  invited_user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  invited_by uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'cancelled')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  responded_at timestamptz
-);
-ALTER TABLE public.band_join_requests ENABLE ROW LEVEL SECURITY;
+## Database workflow
 
--- Only one pending invite per (band, user) at a time — allows re-inviting after a decline
-CREATE UNIQUE INDEX IF NOT EXISTS band_join_requests_one_pending_per_user
-  ON public.band_join_requests (band_id, invited_user_id)
-  WHERE status = 'pending';
+Schema is tracked as Supabase CLI migrations in `supabase/migrations/`. The
+CLI is a pinned devDependency, so use the npm scripts — never paste SQL into
+the dashboard by hand.
 
--- ─────────────────────────────────────────────────────────────
--- BAND_MESSAGES (group chat)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.band_messages (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  band_id uuid NOT NULL REFERENCES public.bands(id) ON DELETE CASCADE,
-  from_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content text NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  read_by uuid[] NOT NULL DEFAULT '{}',
-  liked_by uuid[] NOT NULL DEFAULT '{}'
-);
-ALTER TABLE public.band_messages ENABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS band_messages_band_id_created_at_idx
-  ON public.band_messages (band_id, created_at);
-
--- ─────────────────────────────────────────────────────────────
--- Helper functions (same SECURITY DEFINER style as touch_last_active())
--- ─────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.is_band_member(target_band_id uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.band_members
-    WHERE band_id = target_band_id AND user_id = auth.uid()
-  );
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_band_admin(target_band_id uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.band_members
-    WHERE band_id = target_band_id AND user_id = auth.uid() AND role IN ('owner', 'admin')
-  );
-$$;
-
--- ─────────────────────────────────────────────────────────────
--- RLS policies
--- ─────────────────────────────────────────────────────────────
-CREATE POLICY "bands_select_members" ON public.bands
-  FOR SELECT USING (public.is_band_member(id));
-CREATE POLICY "bands_insert_authenticated" ON public.bands
-  FOR INSERT WITH CHECK (auth.uid() = created_by);
-CREATE POLICY "bands_update_admins" ON public.bands
-  FOR UPDATE USING (public.is_band_admin(id));
-CREATE POLICY "bands_delete_owner" ON public.bands
-  FOR DELETE USING (
-    EXISTS (SELECT 1 FROM public.band_members WHERE band_id = id AND user_id = auth.uid() AND role = 'owner')
-  );
-
-CREATE POLICY "band_members_select_members" ON public.band_members
-  FOR SELECT USING (public.is_band_member(band_id));
-CREATE POLICY "band_members_insert_admins_or_self" ON public.band_members
-  FOR INSERT WITH CHECK (public.is_band_admin(band_id) OR user_id = auth.uid());
-CREATE POLICY "band_members_delete_admin_or_self" ON public.band_members
-  FOR DELETE USING (public.is_band_admin(band_id) OR user_id = auth.uid());
-
-CREATE POLICY "band_join_requests_select" ON public.band_join_requests
-  FOR SELECT USING (invited_user_id = auth.uid() OR public.is_band_admin(band_id));
-CREATE POLICY "band_join_requests_insert_admins" ON public.band_join_requests
-  FOR INSERT WITH CHECK (public.is_band_admin(band_id) AND invited_by = auth.uid());
-CREATE POLICY "band_join_requests_update_invitee_or_admin" ON public.band_join_requests
-  FOR UPDATE USING (invited_user_id = auth.uid() OR public.is_band_admin(band_id));
-
-CREATE POLICY "band_messages_select_members" ON public.band_messages
-  FOR SELECT USING (public.is_band_member(band_id));
-CREATE POLICY "band_messages_insert_members" ON public.band_messages
-  FOR INSERT WITH CHECK (public.is_band_member(band_id) AND from_id = auth.uid());
-CREATE POLICY "band_messages_update_members" ON public.band_messages
-  FOR UPDATE USING (public.is_band_member(band_id));
+**One-time setup on the existing project** (the baseline describes objects
+that already exist, so it must be marked applied, not pushed):
+```bash
+npm run db:link -- --project-ref <project-ref>   # asks for the DB password
+npx supabase migration repair --status applied 20260915000000
+npm run db:pull                                  # diff live schema vs. baseline; reconcile any drift
 ```
+
+**Every schema change after that:**
+```bash
+npm run db:new -- describe_the_change   # creates supabase/migrations/<timestamp>_describe_the_change.sql
+# edit the file, then:
+npm run db:push                          # applies un-applied migrations to the linked project
+npm run db:status                        # shows local vs. remote migration state
+```
+
+Migrations must be idempotent where practical (`IF NOT EXISTS`,
+`DROP POLICY IF EXISTS` before `CREATE POLICY`) and must not change
+user-facing behavior without a matching app change in the same commit.
 
 **Routes:** `/bands` (my bands list), `/bands/new` (create wizard), `/bands/[bandId]` (roster/detail), `/bands/[bandId]/settings` (manage), `/messages/band/[bandId]` (group chat — a deliberate fork of `/messages/[userId]/page.tsx`, not a shared component, since read-receipts/typing/channel-naming are pairwise-only in the 1:1 chat code).
 

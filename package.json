@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "tunnel": "npx ngrok http 3000"
+    "tunnel": "npx ngrok http 3000",
+    "db:link": "supabase link",
+    "db:new": "supabase migration new",
+    "db:pull": "supabase db pull",
+    "db:push": "supabase db push",
+    "db:status": "supabase migration list"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
@@ -32,6 +37,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "supabase": "2.117.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
