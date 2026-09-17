@@ -14,6 +14,8 @@ export interface FeedPost extends Post {
 
 export interface FeedComment extends PostComment {
   author: ProfileSummary
+  likeCount: number
+  likedByMe: boolean
 }
 
 export type FeedScope =
@@ -112,25 +114,52 @@ export async function setPostLiked(supabase: SupabaseClient, postId: string, use
   if (error) throw error
 }
 
-export async function fetchComments(supabase: SupabaseClient, postId: string): Promise<FeedComment[]> {
+// Flat list (top-level comments and replies mixed, oldest first) with like
+// counts and whether the viewer liked each one. The UI groups replies under
+// their parent.
+export async function fetchComments(supabase: SupabaseClient, postId: string, userId: string): Promise<FeedComment[]> {
   const { data, error } = await supabase
     .from('post_comments')
-    .select('*, author:profiles!post_comments_author_id_fkey(id, display_name, avatar_url)')
+    .select('*, author:profiles!post_comments_author_id_fkey(id, display_name, avatar_url), post_comment_likes(count)')
     .eq('post_id', postId)
     .order('created_at', { ascending: true })
   if (error) throw error
+
+  const ids = (data ?? []).map((c) => c.id as string)
+  let likedIds = new Set<string>()
+  if (ids.length > 0) {
+    const { data: mine } = await supabase
+      .from('post_comment_likes').select('comment_id').eq('user_id', userId).in('comment_id', ids)
+    likedIds = new Set((mine ?? []).map((l) => l.comment_id as string))
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data ?? []).map((c: any) => ({
-    id: c.id, post_id: c.post_id, author_id: c.author_id, content: c.content, created_at: c.created_at,
+    id: c.id, post_id: c.post_id, author_id: c.author_id, parent_id: c.parent_id ?? null,
+    content: c.content, created_at: c.created_at,
     author: c.author ?? { id: c.author_id, display_name: null, avatar_url: null },
+    likeCount: c.post_comment_likes?.[0]?.count ?? 0,
+    likedByMe: likedIds.has(c.id),
   }))
 }
 
-export async function addComment(supabase: SupabaseClient, postId: string, authorId: string, content: string): Promise<string> {
+export async function addComment(
+  supabase: SupabaseClient,
+  input: { postId: string; authorId: string; content: string; parentId?: string | null },
+): Promise<string> {
   const id = crypto.randomUUID()
-  const { error } = await supabase.from('post_comments').insert({ id, post_id: postId, author_id: authorId, content })
+  const { error } = await supabase.from('post_comments').insert({
+    id, post_id: input.postId, author_id: input.authorId, content: input.content, parent_id: input.parentId ?? null,
+  })
   if (error) throw error
   return id
+}
+
+export async function setCommentLiked(supabase: SupabaseClient, commentId: string, userId: string, liked: boolean): Promise<void> {
+  const { error } = liked
+    ? await supabase.from('post_comment_likes').upsert({ comment_id: commentId, user_id: userId }, { onConflict: 'comment_id,user_id' })
+    : await supabase.from('post_comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId)
+  if (error) throw error
 }
 
 export async function deleteComment(supabase: SupabaseClient, commentId: string): Promise<void> {

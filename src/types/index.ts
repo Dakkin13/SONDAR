@@ -193,6 +193,8 @@ export interface PostComment {
   id: string
   post_id: string
   author_id: string
+  /** Top-level comment this is a reply to (one level deep, Instagram-style). */
+  parent_id: string | null
   content: string
   created_at: string
 }

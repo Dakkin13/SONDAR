@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -8,11 +8,12 @@ import { createClient } from '@/lib/supabase/client'
 import Avatar from '@/components/ui/Avatar'
 import ImageLightbox from '@/components/chat/ImageLightbox'
 import { useToast } from '@/components/ui/Toast'
+import { ActionSheet, ConfirmSheet, type SheetAction } from '@/components/ui/ActionSheet'
 import { renderMessageText } from '@/lib/chat/text'
 import { formatTimeAgo } from '@/lib/chat/time'
 import { getErrorMessage } from '@/lib/utils'
 import {
-  addComment, deleteComment, deletePost, fetchComments, setPostLiked,
+  addComment, deleteComment, deletePost, fetchComments, setCommentLiked, setPostLiked,
   type FeedComment, type FeedPost,
 } from '@/lib/data/posts'
 
@@ -28,6 +29,12 @@ function initialsOf(name: string | null | undefined): string {
   return (name ?? '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 }
 
+interface ReplyTarget {
+  /** The top-level comment replies nest under (one level deep, like Instagram). */
+  rootId: string
+  name: string
+}
+
 export default function PostCard({ post, currentUserId, canModerate, onDeleted }: PostCardProps) {
   const supabase = createClient()
   const { toast } = useToast()
@@ -39,14 +46,37 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [comments, setComments] = useState<FeedComment[] | null>(null)
   const [commentText, setCommentText] = useState('')
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
   const [posting, setPosting] = useState(false)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set())
+  const [commentMenu, setCommentMenu] = useState<FeedComment | null>(null)
+  const [confirmDeletePost, setConfirmDeletePost] = useState(false)
+  const [confirmDeleteComment, setConfirmDeleteComment] = useState<FeedComment | null>(null)
 
   const isBandPost = post.band !== null
-  const canDelete = post.author_id === currentUserId || (isBandPost && !!canModerate)
+  const canDeletePost = post.author_id === currentUserId || (isBandPost && !!canModerate)
   const authorFirst = post.author.display_name?.split(' ')[0] ?? 'someone'
+
+  // Flat list -> top-level comments + replies grouped under their parent,
+  // one level deep (a reply to a reply still nests under the original
+  // top-level comment, same as Instagram).
+  const { roots, repliesByParent } = useMemo(() => {
+    const roots: FeedComment[] = []
+    const repliesByParent = new Map<string, FeedComment[]>()
+    for (const c of comments ?? []) {
+      if (c.parent_id) {
+        const list = repliesByParent.get(c.parent_id) ?? []
+        list.push(c)
+        repliesByParent.set(c.parent_id, list)
+      } else {
+        roots.push(c)
+      }
+    }
+    return { roots, repliesByParent }
+  }, [comments])
 
   async function toggleLike() {
     const next = !liked
@@ -67,11 +97,16 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
     setCommentsOpen(opening)
     if (opening && comments === null) {
       try {
-        setComments(await fetchComments(supabase, post.id))
+        setComments(await fetchComments(supabase, post.id, currentUserId))
       } catch (err) {
         toast(getErrorMessage(err, 'Could not load comments'), 'error')
       }
     }
+  }
+
+  function startReply(c: FeedComment) {
+    setReplyTo({ rootId: c.parent_id ?? c.id, name: c.author.display_name ?? 'them' })
+    if (c.parent_id) setExpandedReplies(prev => new Set(prev).add(c.parent_id!))
   }
 
   async function submitComment() {
@@ -79,14 +114,17 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
     if (!content || posting) return
     setPosting(true)
     try {
-      const id = await addComment(supabase, post.id, currentUserId, content)
+      const id = await addComment(supabase, { postId: post.id, authorId: currentUserId, content, parentId: replyTo?.rootId ?? null })
       const { data: me } = await supabase.from('profiles').select('id, display_name, avatar_url').eq('id', currentUserId).single()
       setComments(prev => [...(prev ?? []), {
-        id, post_id: post.id, author_id: currentUserId, content, created_at: new Date().toISOString(),
+        id, post_id: post.id, author_id: currentUserId, parent_id: replyTo?.rootId ?? null,
+        content, created_at: new Date().toISOString(),
         author: me ?? { id: currentUserId, display_name: null, avatar_url: null },
+        likeCount: 0, likedByMe: false,
       }])
       setCommentCount(c => c + 1)
       setCommentText('')
+      setReplyTo(null)
     } catch (err) {
       toast(getErrorMessage(err, 'Could not post comment'), 'error')
     } finally {
@@ -94,22 +132,32 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
     }
   }
 
-  async function removeComment(id: string) {
+  async function removeComment(c: FeedComment) {
     const snapshot = comments
-    setComments(prev => (prev ?? []).filter(c => c.id !== id))
-    setCommentCount(c => Math.max(0, c - 1))
+    const removedCount = 1 + (c.parent_id ? 0 : (repliesByParent.get(c.id)?.length ?? 0))
+    setComments(prev => (prev ?? []).filter(x => x.id !== c.id && x.parent_id !== c.id))
+    setCommentCount(n => Math.max(0, n - removedCount))
     try {
-      await deleteComment(supabase, id)
+      await deleteComment(supabase, c.id)
     } catch (err) {
       setComments(snapshot)
-      setCommentCount(c => c + 1)
+      setCommentCount(n => n + removedCount)
       toast(getErrorMessage(err, 'Could not delete comment'), 'error')
     }
   }
 
+  async function toggleCommentLike(c: FeedComment) {
+    const next = !c.likedByMe
+    setComments(prev => (prev ?? []).map(x => x.id === c.id ? { ...x, likedByMe: next, likeCount: x.likeCount + (next ? 1 : -1) } : x))
+    try {
+      await setCommentLiked(supabase, c.id, currentUserId, next)
+    } catch (err) {
+      setComments(prev => (prev ?? []).map(x => x.id === c.id ? { ...x, likedByMe: !next, likeCount: x.likeCount + (next ? -1 : 1) } : x))
+      toast(getErrorMessage(err, 'Could not like comment'), 'error')
+    }
+  }
+
   async function removePost() {
-    setMenuOpen(false)
-    if (!confirm('Delete this post?')) return
     setDeleted(true)
     try {
       await deletePost(supabase, post.id)
@@ -120,6 +168,89 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
     }
   }
 
+  function commentActions(c: FeedComment): SheetAction[] {
+    const canDeleteThis = c.author_id === currentUserId || canDeletePost
+    const actions: SheetAction[] = [
+      { label: 'Reply', icon: '↩︎', onSelect: () => startReply(c) },
+    ]
+    if (canDeleteThis) {
+      actions.push({ label: 'Delete', icon: '🗑️', destructive: true, onSelect: () => setConfirmDeleteComment(c) })
+    }
+    return actions
+  }
+
+  function CommentRow({ c, isReply }: { c: FeedComment; isReply?: boolean }) {
+    const replies = repliesByParent.get(c.id) ?? []
+    const expanded = expandedReplies.has(c.id)
+    return (
+      <div className={isReply ? 'flex items-start gap-2.5 pl-9' : 'flex items-start gap-2.5'}>
+        <Link href={`/profile/${c.author.id}`} className="flex-shrink-0 pt-0.5">
+          <Avatar src={c.author.avatar_url} alt={c.author.display_name ?? ''} size={isReply ? 24 : 28}>
+            <span style={{ fontFamily: 'var(--font-bebas)', fontSize: isReply ? 10 : 11, color: 'rgba(240,239,235,0.5)' }}>
+              {initialsOf(c.author.display_name)}
+            </span>
+          </Avatar>
+        </Link>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] leading-snug text-[rgba(240,239,235,0.85)]">
+            <Link href={`/profile/${c.author.id}`} className="mr-1.5 font-semibold text-[#F0EFEB]">
+              {c.author.display_name ?? 'Unknown'}
+            </Link>
+            {renderMessageText(c.content)}
+          </p>
+          <div className="mt-0.5 flex items-center gap-3 text-[10px] text-[rgba(240,239,235,0.3)]">
+            <span>{formatTimeAgo(c.created_at)}</span>
+            {c.likeCount > 0 && <span>{c.likeCount} like{c.likeCount !== 1 ? 's' : ''}</span>}
+            <button type="button" onClick={() => startReply(c)} className="font-semibold hover:text-[rgba(240,239,235,0.6)]">
+              Reply
+            </button>
+          </div>
+          {!isReply && replies.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpandedReplies(prev => {
+                const next = new Set(prev)
+                if (next.has(c.id)) next.delete(c.id); else next.add(c.id)
+                return next
+              })}
+              className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-[rgba(240,239,235,0.35)] hover:text-[rgba(240,239,235,0.55)]"
+            >
+              <span style={{ width: 20, height: 1, background: 'rgba(240,239,235,0.2)' }} />
+              {expanded ? 'Hide replies' : `View ${replies.length} repl${replies.length !== 1 ? 'ies' : 'y'}`}
+            </button>
+          )}
+          {!isReply && expanded && (
+            <div className="mt-2.5 flex flex-col gap-2.5">
+              {replies.map(r => <CommentRow key={r.id} c={r} isReply />)}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-shrink-0 flex-col items-center gap-1 pt-0.5">
+          <button
+            type="button"
+            onClick={() => void toggleCommentLike(c)}
+            className="transition-transform active:scale-90"
+            aria-label={c.likedByMe ? 'Unlike comment' : 'Like comment'}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill={c.likedByMe ? '#FF5C00' : 'none'}
+              stroke={c.likedByMe ? '#FF5C00' : 'rgba(240,239,235,0.35)'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCommentMenu(c)}
+            className="flex h-6 w-6 items-center justify-center text-[rgba(240,239,235,0.3)] hover:text-[rgba(240,239,235,0.6)]"
+            style={{ fontSize: 14, lineHeight: 1 }}
+            aria-label="Comment options"
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (deleted) return null
 
   return (
@@ -128,6 +259,32 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
       style={{ background: 'rgba(10,10,10,0.92)', border: '1px solid rgba(240,239,235,0.08)' }}
     >
       <ImageLightbox url={lightbox} onClose={() => setLightbox(null)} />
+
+      <ActionSheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        actions={[{ label: 'Delete post', icon: '🗑️', destructive: true, onSelect: () => setConfirmDeletePost(true) }]}
+      />
+      <ConfirmSheet
+        open={confirmDeletePost}
+        title="Delete this post?"
+        message="This can't be undone."
+        onConfirm={() => void removePost()}
+        onClose={() => setConfirmDeletePost(false)}
+      />
+
+      <ActionSheet
+        open={commentMenu !== null}
+        onClose={() => setCommentMenu(null)}
+        actions={commentMenu ? commentActions(commentMenu) : []}
+      />
+      <ConfirmSheet
+        open={confirmDeleteComment !== null}
+        title="Delete this comment?"
+        message={confirmDeleteComment?.parent_id ? undefined : "Its replies will be deleted too."}
+        onConfirm={() => { if (confirmDeleteComment) void removeComment(confirmDeleteComment) }}
+        onClose={() => setConfirmDeleteComment(null)}
+      />
 
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-3.5 pb-2">
@@ -169,32 +326,16 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
             </>
           )}
         </div>
-        {canDelete && (
-          <div className="relative flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => setMenuOpen(v => !v)}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-[rgba(240,239,235,0.45)] hover:text-[#F0EFEB]"
-              style={{ fontSize: 18, lineHeight: 1 }}
-              aria-label="Post options"
-            >
-              ⋯
-            </button>
-            <AnimatePresence>
-              {menuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                  className="absolute right-0 top-9 z-20 overflow-hidden rounded-xl"
-                  style={{ background: 'rgb(22,22,22)', border: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 8px 32px rgba(0,0,0,0.6)', minWidth: 150 }}
-                >
-                  <button type="button" onClick={() => void removePost()}
-                    className="flex w-full items-center gap-2 px-4 py-3 text-left text-[13px]" style={{ color: '#ef4444' }}>
-                    🗑️ Delete post
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+        {canDeletePost && (
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-[rgba(240,239,235,0.45)] hover:text-[#F0EFEB]"
+            style={{ fontSize: 18, lineHeight: 1 }}
+            aria-label="Post options"
+          >
+            ⋯
+          </button>
         )}
       </div>
 
@@ -270,47 +411,32 @@ export default function PostCard({ post, currentUserId, canModerate, onDeleted }
                 <div className="flex justify-center py-3">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-[rgba(240,239,235,0.12)] border-t-[#FF5500]" />
                 </div>
-              ) : comments.length === 0 ? (
+              ) : roots.length === 0 ? (
                 <p className="pb-2 text-center text-[12px] text-[rgba(240,239,235,0.3)]">No comments yet — be the first.</p>
               ) : (
                 <div className="flex flex-col gap-3 pb-3">
-                  {comments.map(c => (
-                    <div key={c.id} className="flex items-start gap-2.5">
-                      <Link href={`/profile/${c.author.id}`} className="flex-shrink-0 pt-0.5">
-                        <Avatar src={c.author.avatar_url} alt={c.author.display_name ?? ''} size={28}>
-                          <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 11, color: 'rgba(240,239,235,0.5)' }}>
-                            {initialsOf(c.author.display_name)}
-                          </span>
-                        </Avatar>
-                      </Link>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] leading-snug text-[rgba(240,239,235,0.85)]">
-                          <Link href={`/profile/${c.author.id}`} className="mr-1.5 font-semibold text-[#F0EFEB]">
-                            {c.author.display_name ?? 'Unknown'}
-                          </Link>
-                          {renderMessageText(c.content)}
-                        </p>
-                        <div className="mt-0.5 flex items-center gap-3 text-[10px] text-[rgba(240,239,235,0.3)]">
-                          <span>{formatTimeAgo(c.created_at)}</span>
-                          {(c.author_id === currentUserId || canDelete) && (
-                            <button type="button" onClick={() => void removeComment(c.id)} className="hover:text-[rgba(255,100,100,0.8)]">
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                  {roots.map(c => <CommentRow key={c.id} c={c} />)}
                 </div>
               )}
 
+              {replyTo && (
+                <div className="mb-2 flex items-center justify-between rounded-lg px-2.5 py-1.5" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  <span className="text-[11px] text-[rgba(240,239,235,0.45)]">
+                    Replying to <span className="font-semibold text-[rgba(240,239,235,0.7)]">{replyTo.name}</span>
+                  </span>
+                  <button type="button" onClick={() => setReplyTo(null)} className="text-[rgba(240,239,235,0.4)] hover:text-[#F0EFEB]" aria-label="Cancel reply">
+                    ×
+                  </button>
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <textarea
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submitComment() } }}
-                  placeholder="Add a comment…"
+                  placeholder={replyTo ? `Reply to ${replyTo.name}…` : 'Add a comment…'}
                   rows={1}
+                  autoFocus={!!replyTo}
                   className="flex-1 resize-none rounded-2xl px-3.5 py-2 text-[13px] text-[#F0EFEB] placeholder-[rgba(240,239,235,0.25)] outline-none"
                   style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
                 />
