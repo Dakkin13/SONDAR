@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # Fast, no external dependencies — runs on every push regardless of secrets.
+  typecheck-and-lint:
+    name: Typecheck & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+  # Golden-path Playwright tests: sign up → onboard, send a DM, create a
+  # band. Runs against a DEDICATED Supabase TEST project — see
+  # e2e/README.md for one-time setup. Needs three repo secrets:
+  #   E2E_SUPABASE_URL, E2E_SUPABASE_ANON_KEY, E2E_SUPABASE_SERVICE_ROLE_KEY
+  e2e:
+    name: E2E (golden paths)
+    runs-on: ubuntu-latest
+    needs: typecheck-and-lint
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+      # NEXT_PUBLIC_* vars are inlined into the app at BUILD time, not read
+      # at runtime, so this has to be set before `npm run build` below.
+      NEXT_PUBLIC_WAITLIST_MODE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lets every later step skip cleanly (with one loud warning) instead of
+      # failing on undefined secrets, for as long as this repo runs CI
+      # before the test project is wired up.
+      - name: Check E2E secrets are configured
+        id: secrets-check
+        env:
+          E2E_URL: ${{ secrets.E2E_SUPABASE_URL }}
+          E2E_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
+          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$E2E_URL" ] || [ -z "$E2E_ANON_KEY" ] || [ -z "$E2E_SERVICE_ROLE_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: E2E secrets missing — tests skipped
+        if: steps.secrets-check.outputs.configured != 'true'
+        run: |
+          echo "::warning::E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY / E2E_SUPABASE_SERVICE_ROLE_KEY are not set as repo secrets, so the sign-up, DM, and band-creation golden-path tests were SKIPPED, not passed. Set them up per e2e/README.md — this is the one gap that makes the rest of this workflow decorative."
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets-check.outputs.configured == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+        if: steps.secrets-check.outputs.configured == 'true'
+
+      - name: Install Playwright's Chromium
+        if: steps.secrets-check.outputs.configured == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Build (against the test Supabase project)
+        if: steps.secrets-check.outputs.configured == 'true'
+        run: npm run build
+
+      - name: Run golden-path E2E tests
+        if: steps.secrets-check.outputs.configured == 'true'
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always() && steps.secrets-check.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

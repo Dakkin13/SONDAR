@@ -225,6 +225,27 @@ limit, write a new migration that re-creates the trigger with new arguments.
 
 ---
 
+## Testing & CI
+
+Every push runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+typecheck (`npm run typecheck`) and lint (`npm run lint`) always run; a
+second job then runs three Playwright golden-path tests in
+[`e2e/`](e2e/README.md) — **sign up → onboard**, **send a DM** (two browser
+contexts, asserts realtime delivery with no reload), and **create a band**
+(the exact shape that used to trip the RLS chicken-and-egg bug). These are
+the flows most likely to break silently from a schema or RLS change.
+
+The E2E job needs three repo secrets pointing at a **dedicated test Supabase
+project** (never production) — `E2E_SUPABASE_URL`, `E2E_SUPABASE_ANON_KEY`,
+`E2E_SUPABASE_SERVICE_ROLE_KEY`. Until they're set it logs one warning and
+skips itself rather than failing. Full one-time setup: [`e2e/README.md`](e2e/README.md).
+
+Run locally: `npm run build && npm run test:e2e` (or `npm run test:e2e:ui`
+for Playwright's interactive runner), after creating `.env.e2e` per the
+README.
+
+---
+
 ## Design system
 
 - Background: `#0D0D0D` (near-black)
