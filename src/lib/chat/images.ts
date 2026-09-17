@@ -53,15 +53,25 @@ export async function compressImage(file: File): Promise<Blob> {
   return blob
 }
 
-// Uploads a chat image into the user's own folder of the avatars bucket
-// (the bucket every existing upload already uses, so its policies apply)
-// and returns the public URL.
-export async function uploadChatImage(supabase: SupabaseClient, userId: string, file: File): Promise<string> {
+// Compresses and uploads an image into the user's own folder of the avatars
+// bucket (the bucket every existing upload already uses, so its policies
+// apply) and returns the public URL. `folder` keeps chat photos and post
+// photos apart.
+export async function uploadImage(
+  supabase: SupabaseClient,
+  userId: string,
+  file: File,
+  folder: 'chat' | 'posts' = 'chat',
+): Promise<string> {
   const blob = await compressImage(file)
-  const path = `${userId}/chat/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+  const path = `${userId}/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
   const { error } = await supabase.storage
     .from('avatars')
     .upload(path, blob, { contentType: 'image/jpeg', upsert: false })
   if (error) throw error
   return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+}
+
+export function uploadChatImage(supabase: SupabaseClient, userId: string, file: File): Promise<string> {
+  return uploadImage(supabase, userId, file, 'chat')
 }

@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/types'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import BottomNav from '@/components/ui/BottomNav'
+import PostFeed from '@/components/posts/PostFeed'
 import { useToast } from '@/components/ui/Toast'
 
 async function fetchArtistThumb(name: string): Promise<string | null> {
@@ -576,6 +577,23 @@ export default function ProfilePage() {
             >
               {waving ? 'Sending…' : waved ? '👋 Waved!' : '👋 Wave'}
             </button>
+          </motion.div>
+        )}
+
+        {/* Posts */}
+        {currentUserId !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+            className="mt-6 pb-4"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">Posts</p>
+            </div>
+            <PostFeed scope={{ kind: 'author', authorId: profile.id }} currentUserId={currentUserId}
+              emptyText={isOwnProfile ? "You haven't posted yet." : `${(profile.display_name ?? 'They').split(' ')[0]} hasn't posted yet.`} />
           </motion.div>
         )}
       </motion.div>

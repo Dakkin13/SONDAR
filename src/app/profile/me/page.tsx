@@ -8,6 +8,8 @@ import type { Profile } from '@/types'
 import { getErrorMessage } from '@/lib/utils'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
 import BottomNav from '@/components/ui/BottomNav'
+import PostFeed from '@/components/posts/PostFeed'
+import PostComposer from '@/components/posts/PostComposer'
 import { useToast } from '@/components/ui/Toast'
 
 type ProfileData = Pick<
@@ -116,6 +118,7 @@ export default function MyProfilePage() {
   const [addingPhoto, setAddingPhoto] = useState(false)
   const [influenceImages, setInfluenceImages] = useState<Record<string, string | null>>({})
   const [profileViews, setProfileViews] = useState<number | null>(null)
+  const [postsKey, setPostsKey] = useState(0)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const addPhotoRef = useRef<HTMLInputElement>(null)
   const fetchedRef = useRef(false)
@@ -517,6 +520,27 @@ export default function MyProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Posts */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 0.25 }}
+          className="mt-6"
+        >
+          <div className="mb-3 flex items-center gap-2">
+            <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">Your posts</p>
+          </div>
+          <div className="mb-3">
+            <PostComposer
+              currentUser={{ id: profile.id, display_name: profile.display_name, avatar_url: profile.avatar_url }}
+              onPosted={() => setPostsKey(k => k + 1)}
+            />
+          </div>
+          <PostFeed scope={{ kind: 'author', authorId: profile.id }} currentUserId={profile.id} refreshKey={postsKey}
+            emptyText="You haven't posted yet." />
+        </motion.div>
 
         {/* Sign out */}
         <motion.div

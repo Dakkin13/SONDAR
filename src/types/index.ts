@@ -176,6 +176,27 @@ export interface BandMessage {
   liked_by: string[]
 }
 
+// ── Posts ──────────────────────────────────────────────────────────────────
+// Mirrors public.posts / post_likes / post_comments / band_followers.
+
+export interface Post {
+  id: string
+  author_id: string
+  band_id: string | null
+  content: string
+  image_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PostComment {
+  id: string
+  post_id: string
+  author_id: string
+  content: string
+  created_at: string
+}
+
 // Row shape used by /bands list and the unified /messages inbox
 export interface BandListItem {
   band: Band

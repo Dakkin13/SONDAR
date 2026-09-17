@@ -12,6 +12,9 @@ import { useToast } from '@/components/ui/Toast'
 import { getErrorMessage } from '@/lib/utils'
 import { tap } from '@/lib/touch'
 import { useEscapeKey } from '@/lib/hooks/useEscapeKey'
+import PostFeed from '@/components/posts/PostFeed'
+import PostComposer from '@/components/posts/PostComposer'
+import { fetchFollowState, setFollowing } from '@/lib/data/posts'
 
 type Connection = ProfileSummary
 
@@ -45,8 +48,14 @@ export default function BandDetailPage() {
   const [selectedInviteIds, setSelectedInviteIds] = useState<string[]>([])
   const [inviting, setInviting] = useState(false)
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
+  const [followers, setFollowers] = useState(0)
+  const [following, setFollowingState] = useState(false)
+  const [followBusy, setFollowBusy] = useState(false)
+  const [me, setMe] = useState<ProfileSummary | null>(null)
+  const [postsKey, setPostsKey] = useState(0)
 
   const isAdmin = myRole === 'owner' || myRole === 'admin'
+  const isMember = myRole !== null
 
   async function loadAll() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -65,8 +74,15 @@ export default function BandDetailPage() {
       .eq('band_id', bandId)
 
     const mine = (memberRows ?? []).find(m => m.user_id === user.id)
-    if (!mine) { setNotFound(true); setLoading(false); return }
-    setMyRole(mine.role as BandRole)
+    setMyRole(mine ? (mine.role as BandRole) : null)
+
+    const [followState, { data: meRow }] = await Promise.all([
+      fetchFollowState(supabase, bandId, user.id).catch(() => ({ count: 0, following: false })),
+      supabase.from('profiles').select('id, display_name, avatar_url').eq('id', user.id).single(),
+    ])
+    setFollowers(followState.count)
+    setFollowingState(followState.following)
+    setMe(meRow ?? { id: user.id, display_name: null, avatar_url: null })
 
     const memberIds = (memberRows ?? []).map(m => m.user_id)
     const { data: profiles } = await supabase
@@ -84,7 +100,7 @@ export default function BandDetailPage() {
       instruments: (profileMap.get(m.user_id)?.instruments as BandMemberProfile['instruments']) ?? [],
     })))
 
-    if (mine.role === 'owner' || mine.role === 'admin') {
+    if (mine && (mine.role === 'owner' || mine.role === 'admin')) {
       const { data: requests } = await supabase
         .from('band_join_requests')
         .select('id, invited_user_id')
@@ -156,6 +172,23 @@ export default function BandDetailPage() {
       }
     }
     void loadAll()
+  }
+
+  async function toggleFollow() {
+    if (!currentUserId || followBusy) return
+    const next = !following
+    setFollowBusy(true)
+    setFollowingState(next)
+    setFollowers(c => Math.max(0, c + (next ? 1 : -1)))
+    try {
+      await setFollowing(supabase, bandId, currentUserId, next)
+    } catch (err) {
+      setFollowingState(!next)
+      setFollowers(c => Math.max(0, c + (next ? -1 : 1)))
+      toast(getErrorMessage(err, 'Could not update follow'), 'error')
+    } finally {
+      setFollowBusy(false)
+    }
   }
 
   async function handleLeave() {
@@ -304,11 +337,15 @@ export default function BandDetailPage() {
               <p className="mt-0.5 text-[7px] tracking-[0.22em] text-[rgba(240,239,235,0.35)]">BAND · ALL AREAS</p>
               <div className="mt-1.5 h-px w-8 bg-[#FF5C00]" />
             </div>
-            {myRole && (
+            {myRole ? (
               <div className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.4)] bg-[rgba(255,92,0,0.12)] px-2 py-0.5">
                 <span className="text-[6.5px] font-bold tracking-[0.15em] text-[#FF5C00]">{ROLE_LABEL[myRole]}</span>
               </div>
-            )}
+            ) : following ? (
+              <div className="flex items-center gap-1 rounded-full border border-[rgba(240,239,235,0.18)] bg-[rgba(240,239,235,0.06)] px-2 py-0.5">
+                <span className="text-[6.5px] font-bold tracking-[0.15em] text-[rgba(240,239,235,0.6)]">FOLLOWING</span>
+              </div>
+            ) : null}
           </div>
 
           {/* Avatar section */}
@@ -343,7 +380,7 @@ export default function BandDetailPage() {
               {band.name.toUpperCase()}
             </h1>
             <p className="mt-0.5 text-[9px] tracking-[0.14em] text-[rgba(240,239,235,0.38)] uppercase">
-              {members.length} member{members.length !== 1 ? 's' : ''}
+              {members.length} member{members.length !== 1 ? 's' : ''} · {followers} follower{followers !== 1 ? 's' : ''}
             </p>
           </div>
 
@@ -420,12 +457,26 @@ export default function BandDetailPage() {
           transition={{ duration: 0.4, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
           className="mt-4 flex flex-col gap-2"
         >
-          <button
-            onClick={() => router.push(`/messages/band/${bandId}`)}
-            className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
-          >
-            Open chat
-          </button>
+          {!isMember && (
+            <button
+              onClick={() => void toggleFollow()}
+              disabled={followBusy}
+              className="w-full rounded-full py-3.5 text-base font-semibold transition-opacity hover:opacity-90 active:opacity-80 disabled:opacity-60"
+              style={following
+                ? { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(240,239,235,0.8)' }
+                : { background: '#FF5500', color: '#000', boxShadow: '0 0 24px rgba(255,85,0,0.4)' }}
+            >
+              {following ? 'Following ✓' : 'Follow'}
+            </button>
+          )}
+          {isMember && (
+            <button
+              onClick={() => router.push(`/messages/band/${bandId}`)}
+              className="w-full rounded-full bg-[#FF5500] py-3.5 text-base font-semibold text-black shadow-[0_0_24px_rgba(255,85,0,0.4)] transition-opacity hover:opacity-90 active:opacity-80"
+            >
+              Open chat
+            </button>
+          )}
           {isAdmin && (
             <button
               onClick={() => void openInvite()}
@@ -442,15 +493,38 @@ export default function BandDetailPage() {
             >
               Disband band
             </button>
-          ) : (
+          ) : isMember ? (
             <button
               onClick={() => { if (confirm('Leave this band?')) void handleLeave() }}
               className="w-full rounded-full py-3 text-sm font-medium text-[rgba(255,100,100,0.6)] transition-colors hover:text-[rgba(255,100,100,0.9)]"
             >
               Leave band
             </button>
-          )}
+          ) : null}
         </motion.div>
+
+        {/* Posts */}
+        {currentUserId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+            className="mt-6"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">Posts</p>
+            </div>
+            {isMember && me && (
+              <div className="mb-3">
+                <PostComposer currentUser={me} defaultBandId={bandId} lockBand
+                  placeholder={`Post as ${band.name}…`} onPosted={() => setPostsKey(k => k + 1)} />
+              </div>
+            )}
+            <PostFeed scope={{ kind: 'band', bandId }} currentUserId={currentUserId} refreshKey={postsKey}
+              canModerate={isAdmin} emptyText={`${band.name} hasn't posted yet.`} />
+          </motion.div>
+        )}
       </motion.div>
 
       <BottomNav />

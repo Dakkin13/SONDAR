@@ -130,6 +130,40 @@ that exact file, so it is authoritative for the bands tables).
 
 ---
 
+## Database — posts and band followers
+
+Social feed layered on top of profiles and bands. Migration:
+`supabase/migrations/20260915000300_posts.sql` (must be applied before any
+posts UI works — until then the feed shows "Could not find the table
+'public.posts'").
+
+**Tables:** `posts` (author_id → profiles, optional band_id → bands, content,
+image_url; a post is "by a person" when band_id is null and "by the band"
+otherwise — the author is still recorded so band posts show "by <name>"),
+`post_likes` (PK post_id+user_id), `post_comments`, `band_followers`
+(PK band_id+user_id). **People are not followable — only bands.**
+
+**Visibility decision:** this migration relaxes `bands` and `band_members`
+SELECT to any authenticated user, because band pages, follow buttons and
+band-post attribution all need them. `band_messages` stay members-only.
+
+**RLS shape:** any member can insert a band post (`is_band_member`), the author
+or a band admin can update/delete it; likes/follows are insert/delete-own;
+comments are insert-own, delete-own-or-post-owner. Rate limits: 10 posts/hr,
+30 comments/min (same trigger as messages).
+
+**Code:** data layer `src/lib/data/posts.ts` (`fetchPosts` with a `FeedScope`
+of global / author / band / following), UI in `src/components/posts/`
+(`PostCard`, `PostComposer` with "Post as: Me | band" chips, `PostFeed`).
+Surfaces: `/posts` (full feed + Everyone / Bands-you-follow tabs), a "Latest
+posts" teaser on `/home`, own posts + composer on `/profile/me`, posts on
+`/profile/[id]`, and band posts + Follow button + follower count on
+`/bands/[bandId]` (non-members now get a public view of that page instead
+of "Band not found"). Post photos go to the `avatars` bucket under
+`<userId>/posts/` via `uploadImage(..., 'posts')`.
+
+---
+
 ## Database workflow
 
 Schema is tracked as Supabase CLI migrations in `supabase/migrations/`. The

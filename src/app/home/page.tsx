@@ -12,6 +12,7 @@ import type { SpacePin } from '@/components/map/SpacesMap'
 import BottomNav from '@/components/ui/BottomNav'
 import Avatar from '@/components/ui/Avatar'
 import { fetchBandSummaries } from '@/lib/data/bands'
+import PostFeed from '@/components/posts/PostFeed'
 import CompleteProfileModal from '@/components/profile/CompleteProfileModal'
 
 const SpacesMap = dynamic(() => import('@/components/map/SpacesMap'), { ssr: false })
@@ -424,6 +425,38 @@ export default function HomePage() {
             </button>
           )}
         </motion.div>
+
+        {/* ── Latest posts ── */}
+        {currentUserId && (
+          <motion.div variants={fadeUp} className="mb-6">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span style={{ width: 18, height: 2, borderRadius: 1, background: '#FF5C00', opacity: 0.65, flexShrink: 0 }} />
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[rgba(240,239,235,0.4)]">
+                  Latest posts
+                </p>
+              </div>
+              <button
+                onClick={() => router.push('/posts')}
+                className="flex items-center gap-1 rounded-full border border-[rgba(255,92,0,0.2)] bg-[rgba(255,92,0,0.06)] px-2.5 py-1 text-[10px] font-medium text-[rgba(255,92,0,0.75)] transition-all hover:border-[rgba(255,92,0,0.4)] hover:bg-[rgba(255,92,0,0.10)] hover:text-[#FF5C00]"
+              >
+                See all →
+              </button>
+            </div>
+            <button
+              onClick={() => router.push('/posts')}
+              className="glass-apple mb-3 flex w-full items-center gap-3 px-4 py-3 text-left"
+            >
+              <Avatar src={profile?.avatar_url} alt="" size={32} border="1.5px solid rgba(240,239,235,0.12)">
+                <span style={{ fontFamily: 'var(--font-bebas)', fontSize: 12, color: 'rgba(240,239,235,0.5)' }}>{initials}</span>
+              </Avatar>
+              <span className="flex-1 text-[13px] text-[rgba(240,239,235,0.35)]">Share something with the scene…</span>
+              <span className="text-[rgba(255,92,0,0.7)]">✎</span>
+            </button>
+            <PostFeed scope={{ kind: 'global' }} currentUserId={currentUserId} max={3}
+              emptyText="No posts yet — be the first to share something." />
+          </motion.div>
+        )}
 
         {/* ── Rehearsal spaces ── */}
         <motion.div variants={fadeUp} className="mb-6">

@@ -43,6 +43,19 @@ export function formatLastSeen(iso: string | null | undefined): string | null {
   return `last seen ${new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
 }
 
+// Compact relative time for feeds: "just now", "5m", "3h", "2d", "Sep 3".
+export function formatTimeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d`
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
 export function canStillEdit(createdAt: string, windowMinutes = 15): boolean {
   return Date.now() - new Date(createdAt).getTime() < windowMinutes * 60 * 1000
 }

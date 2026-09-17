@@ -43,6 +43,7 @@ function stageName(pathname: string, step: number): string {
   // chat context, no need for a distinct orb position.
   if (pathname.startsWith('/messages')) return 'messages'
   if (pathname.startsWith('/bands')) return 'bands'
+  if (pathname.startsWith('/posts')) return 'bands'
   if (pathname.startsWith('/profile')) return 'profile'
   if (pathname === '/onboarding') return `step${Math.min(step, 4)}`
   return 'landing'
