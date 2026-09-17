@@ -196,11 +196,14 @@ export default function MessageBubble({
           </p>
         )}
 
+        {/* This wrapper contains only the bubble, so the toolbar and emoji strip
+            position relative to it — not to the name/reactions/timestamp rows. */}
+        <div className="relative">
         {/* Emoji button next to the bubble: hover-revealed on desktop, always
             there (faint) on touch. Tap → inline strip, no sheet. */}
         {canAct && (
           <div
-            className={`absolute bottom-0 flex items-center gap-0.5 transition-opacity ${isMine ? 'right-full mr-1.5' : 'left-full ml-1.5'} ${
+            className={`absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 transition-opacity ${isMine ? 'right-full mr-1.5' : 'left-full ml-1.5'} ${
               canHover ? 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100' : 'opacity-45'
             }`}
           >
@@ -345,6 +348,7 @@ export default function MessageBubble({
             ) : null}
           </div>
         </motion.div>
+        </div>
 
         {/* Reactions */}
         {reactions.length > 0 && (

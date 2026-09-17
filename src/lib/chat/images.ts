@@ -3,27 +3,54 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const MAX_EDGE = 1600
 const JPEG_QUALITY = 0.82
 
-// Downscales to at most MAX_EDGE on the long side and re-encodes as JPEG so a
-// 4 MB phone photo becomes ~150–300 KB before it ever leaves the device.
-// Falls back to the original file if the browser can't decode it.
+async function decodeWithBitmap(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file, { imageOrientation: 'from-image' })
+  } catch {
+    // Older Safari rejects the options object.
+    return await createImageBitmap(file)
+  }
+}
+
+// Fallback for formats createImageBitmap won't decode (notably HEIC from
+// iPhones — Safari can still render those through an <img>).
+function decodeWithImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new window.Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not decode image')) }
+    img.src = url
+  })
+}
+
+function toJpeg(source: CanvasImageSource, width: number, height: number): Promise<Blob | null> {
+  const scale = Math.min(1, MAX_EDGE / Math.max(width, height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width * scale))
+  canvas.height = Math.max(1, Math.round(height * scale))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return Promise.resolve(null)
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY))
+}
+
+// Downscales to at most MAX_EDGE on the long side and re-encodes as JPEG so
+// a 4 MB phone photo becomes ~150–300 KB before it leaves the device, and so
+// the bucket always receives a plain JPEG regardless of the source format.
 export async function compressImage(file: File): Promise<Blob> {
   try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
-    const w = Math.round(bitmap.width * scale)
-    const h = Math.round(bitmap.height * scale)
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return file
-    ctx.drawImage(bitmap, 0, 0, w, h)
+    const bitmap = await decodeWithBitmap(file)
+    const blob = await toJpeg(bitmap, bitmap.width, bitmap.height)
     bitmap.close()
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY))
-    return blob ?? file
+    if (blob) return blob
   } catch {
-    return file
+    /* fall through to the <img> path */
   }
+  const img = await decodeWithImage(file)
+  const blob = await toJpeg(img, img.naturalWidth, img.naturalHeight)
+  if (!blob) throw new Error('Could not process image')
+  return blob
 }
 
 // Uploads a chat image into the user's own folder of the avatars bucket
