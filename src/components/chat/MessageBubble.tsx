@@ -55,6 +55,7 @@ export default function MessageBubble({
   onReply, onReact, onEdit, onDelete, onImageClick, onJumpTo,
 }: MessageBubbleProps) {
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [swipeX, setSwipeX] = useState(0)
   const [burst, setBurst] = useState<string | null>(null)
 
@@ -63,14 +64,29 @@ export default function MessageBubble({
   const gestureCancelled = useRef(false)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastTap = useRef(0)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const deleted = msg.deleted_at !== null
   const reactions = summarizeReactions(msg.reactions, currentUserId)
   const editable = isMine && !deleted && !isTemp && onEdit && canStillEdit(msg.created_at)
 
-  useEscapeKey(actionsOpen, () => setActionsOpen(false))
+  useEscapeKey(actionsOpen || pickerOpen, () => { setActionsOpen(false); setPickerOpen(false) })
 
   useEffect(() => () => { if (longPressTimer.current) clearTimeout(longPressTimer.current) }, [])
+
+  // The inline emoji strip closes when you tap anywhere else, like Instagram.
+  useEffect(() => {
+    if (!pickerOpen) return
+    function onOutside(e: Event) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('touchstart', onOutside)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('touchstart', onOutside)
+    }
+  }, [pickerOpen])
 
   function clearLongPress() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
@@ -94,7 +110,7 @@ export default function MessageBubble({
     longPressTimer.current = setTimeout(() => {
       if (gestureCancelled.current || swipeActive.current) return
       try { navigator.vibrate?.(10) } catch { /* ignore */ }
-      setActionsOpen(true)
+      setPickerOpen(true)
     }, LONG_PRESS_MS)
   }
 
@@ -143,10 +159,13 @@ export default function MessageBubble({
         backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       }
 
+  const canAct = !isTemp && !deleted
+
   return (
     <div
       id={`msg-${msg.id}`}
-      className={`group relative flex ${isMine ? 'justify-end' : 'justify-start'} ${showTime ? 'mb-2' : 'mb-0.5'}`}
+      ref={rootRef}
+      className={`group relative flex items-end ${isMine ? 'justify-end' : 'justify-start'} ${showTime ? 'mb-2' : 'mb-0.5'}`}
       style={{ touchAction: 'pan-y' }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -177,16 +196,74 @@ export default function MessageBubble({
           </p>
         )}
 
-        {/* Desktop hover toolbar */}
-        {canHover && !isTemp && !deleted && (
+        {/* Emoji button next to the bubble: hover-revealed on desktop, always
+            there (faint) on touch. Tap → inline strip, no sheet. */}
+        {canAct && (
           <div
-            className={`pointer-events-none absolute top-0 flex gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 ${isMine ? 'right-full mr-1.5' : 'left-full ml-1.5'}`}
+            className={`absolute bottom-0 flex items-center gap-0.5 transition-opacity ${isMine ? 'right-full mr-1.5' : 'left-full ml-1.5'} ${
+              canHover ? 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100' : 'opacity-45'
+            }`}
           >
-            <ToolbarButton label="React" onClick={() => setActionsOpen(true)}>😊</ToolbarButton>
-            <ToolbarButton label="Reply" onClick={() => onReply(msg)}><ReplyIcon /></ToolbarButton>
-            <ToolbarButton label="More" onClick={() => setActionsOpen(true)}>⋯</ToolbarButton>
+            <ToolbarButton label="React" onClick={() => setPickerOpen(v => !v)}>
+              <SmileIcon />
+            </ToolbarButton>
+            {canHover && (
+              <>
+                <ToolbarButton label="Reply" onClick={() => onReply(msg)}><ReplyIcon /></ToolbarButton>
+                <ToolbarButton label="More" onClick={() => setActionsOpen(true)}>⋯</ToolbarButton>
+              </>
+            )}
           </div>
         )}
+
+        {/* Instagram-style inline reaction strip — floats above the bubble */}
+        <AnimatePresence>
+          {pickerOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.92 }}
+              transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] as const }}
+              className={`absolute bottom-full z-20 mb-1.5 flex items-center gap-0.5 rounded-full px-1.5 py-1 ${isMine ? 'right-0' : 'left-0'}`}
+              style={{
+                background: 'rgba(24,24,24,0.98)',
+                border: '1px solid rgba(255,255,255,0.10)',
+                boxShadow: '0 8px 28px rgba(0,0,0,0.55)',
+                transformOrigin: isMine ? 'bottom right' : 'bottom left',
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
+              {REACTION_EMOJIS.map((emoji) => {
+                const mine = (msg.reactions[emoji] ?? []).includes(currentUserId)
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPickerOpen(false); react(emoji) }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition-transform hover:scale-125 active:scale-90"
+                    style={{ background: mine ? 'rgba(255,92,0,0.22)' : 'transparent' }}
+                    aria-label={`React ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                )
+              })}
+              {!canHover && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setPickerOpen(false); setActionsOpen(true) }}
+                  className="ml-0.5 flex h-9 w-9 items-center justify-center rounded-full text-[rgba(240,239,235,0.6)]"
+                  style={{ background: 'rgba(255,255,255,0.06)', fontSize: 18, lineHeight: 1 }}
+                  aria-label="More"
+                >
+                  ⋯
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <motion.div
           initial={{ opacity: 0, y: 6, scale: 0.98 }}
@@ -338,23 +415,6 @@ export default function MessageBubble({
               style={{ background: 'rgba(18,18,18,0.98)', border: '1px solid rgba(255,255,255,0.08)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="mb-3 flex justify-between gap-1">
-                {REACTION_EMOJIS.map((emoji) => {
-                  const mine = (msg.reactions[emoji] ?? []).includes(currentUserId)
-                  return (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => { setActionsOpen(false); react(emoji) }}
-                      className="flex h-11 w-11 items-center justify-center rounded-full text-2xl transition-transform active:scale-90"
-                      style={{ background: mine ? 'rgba(255,92,0,0.2)' : 'rgba(255,255,255,0.06)', border: mine ? '1px solid rgba(255,92,0,0.45)' : '1px solid transparent' }}
-                      aria-label={`React ${emoji}`}
-                    >
-                      {emoji}
-                    </button>
-                  )
-                })}
-              </div>
               <SheetAction icon={<ReplyIcon />} label="Reply" onClick={() => { setActionsOpen(false); onReply(msg) }} />
               {msg.content && (
                 <SheetAction icon="📋" label="Copy text" onClick={() => {
@@ -402,6 +462,14 @@ function SheetAction({ icon, label, onClick, danger }: { icon: ReactNode; label:
       <span className="flex w-5 justify-center text-[15px]">{icon}</span>
       {label}
     </button>
+  )
+}
+
+function SmileIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" y1="9" x2="9.01" y2="9" /><line x1="15" y1="9" x2="15.01" y2="9" />
+    </svg>
   )
 }
 
