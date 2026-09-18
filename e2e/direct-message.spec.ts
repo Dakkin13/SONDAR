@@ -6,7 +6,7 @@ async function signIn(page: Page, user: TestUser) {
   await page.goto('/login')
   await page.getByPlaceholder('Email').fill(user.email)
   await page.getByPlaceholder('Password').fill(user.password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.waitForURL(/\/home/)
 }
 
@@ -40,7 +40,9 @@ test('two users exchange a DM and see it arrive live', async ({ browser, makeOnb
 
     const outbound = `Hey — golden path DM ${Date.now()}`
     await senderPage.getByPlaceholder('Message…').fill(outbound)
-    await senderPage.getByRole('button', { name: 'Send' }).click()
+    // exact: true — 'Send' as a loose substring also matches the header's
+    // "E2E Sender"/"E2E SENDER" buttons ("Sender" contains "Send").
+    await senderPage.getByRole('button', { name: 'Send', exact: true }).click()
 
     // Appears in the sender's own bubble list immediately (optimistic insert)…
     await expect(senderPage.getByText(outbound)).toBeVisible()
@@ -50,7 +52,7 @@ test('two users exchange a DM and see it arrive live', async ({ browser, makeOnb
     // Round trip, to exercise delivery in both directions.
     const reply = `Got it, loud and clear ${Date.now()}`
     await recipientPage.getByPlaceholder('Message…').fill(reply)
-    await recipientPage.getByRole('button', { name: 'Send' }).click()
+    await recipientPage.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(senderPage.getByText(reply)).toBeVisible({ timeout: 15_000 })
   } finally {
     await senderCtx.close()

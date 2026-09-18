@@ -8,7 +8,7 @@ test('create a band and land on its page', async ({ page, onboardedUser }) => {
   await page.goto('/login')
   await page.getByPlaceholder('Email').fill(onboardedUser.email)
   await page.getByPlaceholder('Password').fill(onboardedUser.password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await page.waitForURL(/\/home/)
 
   await page.goto('/bands/new')

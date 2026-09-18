@@ -25,11 +25,18 @@ test('sign up, confirm, sign in, and complete onboarding', async ({ page }) => {
 
     userId = await confirmUserByEmail(email)
 
-    // Simulates clicking the emailed link, then signing in for real.
+    // Simulates clicking the emailed link, then signing in for real — except
+    // on a local Supabase stack (config.toml has enable_confirmations =
+    // false for local dev), signUp() already returned a live session, so
+    // this second /login visit gets server-redirected straight to
+    // /onboarding by the middleware before the form ever renders. Handle
+    // both: sign in only if the form actually shows up.
     await page.goto('/login')
-    await page.getByPlaceholder('Email').fill(email)
-    await page.getByPlaceholder('Password').fill(password)
-    await page.getByRole('button', { name: 'Sign in' }).click()
+    if (page.url().includes('/login')) {
+      await page.getByPlaceholder('Email').fill(email)
+      await page.getByPlaceholder('Password').fill(password)
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    }
 
     await page.waitForURL(/\/onboarding/)
 
