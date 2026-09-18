@@ -32,8 +32,11 @@ test('two users exchange a DM and see it arrive live', async ({ browser, makeOnb
     await senderPage.goto(`/messages/${recipient.id}`)
     await recipientPage.goto(`/messages/${sender.id}`)
 
-    await expect(senderPage.getByText('E2E RECIPIENT')).toBeVisible()
-    await expect(recipientPage.getByText('E2E SENDER')).toBeVisible()
+    // The other person's name legitimately appears twice on a brand-new,
+    // empty conversation — the sticky header and the empty-state card — so
+    // .first() (the header) is enough to confirm we're on the right chat.
+    await expect(senderPage.getByText('E2E RECIPIENT').first()).toBeVisible()
+    await expect(recipientPage.getByText('E2E SENDER').first()).toBeVisible()
 
     const outbound = `Hey — golden path DM ${Date.now()}`
     await senderPage.getByPlaceholder('Message…').fill(outbound)

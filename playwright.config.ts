@@ -21,9 +21,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  // Keep worker count modest so parallel runs don't race on shared
-  // resources like realtime channels.
-  workers: CI ? 2 : undefined,
+  // Serial in CI: these hit a real (if local/throwaway) Supabase stack —
+  // Postgres, GoTrue, PostgREST, Realtime, Storage — on a 2-core runner.
+  // Two workers exercising it concurrently was enough to make sign-in on
+  // an otherwise-idle page occasionally blow the 45s test timeout, purely
+  // from resource contention, not a real bug. Reliability over wall-clock
+  // time for a suite whose entire point is being trustworthy.
+  workers: CI ? 1 : undefined,
   reporter: CI ? [['list'], ['html', { open: 'never' }]] : 'list',
 
   use: {

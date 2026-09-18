@@ -23,7 +23,9 @@ test('create a band and land on its page', async ({ page, onboardedUser }) => {
   await page.waitForURL(/\/bands\/[0-9a-f-]{36}/, { timeout: 15_000 })
   await expect(page.getByRole('heading', { name: bandName.toUpperCase() })).toBeVisible()
   await expect(page.getByText('1 member')).toBeVisible()
-  await expect(page.getByText('OWNER')).toBeVisible()
+  // "OWNER" legitimately appears twice (the role pill and the member row) —
+  // either proves the same thing, so .first() is enough.
+  await expect(page.getByText('OWNER').first()).toBeVisible()
 
   // The band must also show up back on the /bands list.
   await page.goto('/bands')
