@@ -235,14 +235,17 @@ contexts, asserts realtime delivery with no reload), and **create a band**
 (the exact shape that used to trip the RLS chicken-and-egg bug). These are
 the flows most likely to break silently from a schema or RLS change.
 
-The E2E job needs three repo secrets pointing at a **dedicated test Supabase
-project** (never production) — `E2E_SUPABASE_URL`, `E2E_SUPABASE_ANON_KEY`,
-`E2E_SUPABASE_SERVICE_ROLE_KEY`. Until they're set it logs one warning and
-skips itself rather than failing. Full one-time setup: [`e2e/README.md`](e2e/README.md).
+The E2E job needs no GitHub secrets and no second Supabase project: it runs
+against a throwaway **local** Supabase stack (Postgres/Auth/Realtime/
+Storage via Docker) that the Supabase CLI spins up from
+`supabase/migrations/` and tears down every run, using
+`npx supabase start` + `npx supabase status` to get the local URL/keys.
+Never touches the real `sondar` project. Full detail: [`e2e/README.md`](e2e/README.md).
 
-Run locally: `npm run build && npm run test:e2e` (or `npm run test:e2e:ui`
-for Playwright's interactive runner), after creating `.env.e2e` per the
-README.
+Run locally (needs Docker Desktop): `npx supabase start`, put the printed
+URL/keys into `.env.e2e` per the README, then
+`npm run build && npm run test:e2e` (or `npm run test:e2e:ui` for
+Playwright's interactive runner).
 
 ---
 

@@ -14,7 +14,7 @@ env:
   NODE_VERSION: '20'
 
 jobs:
-  # Fast, no external dependencies — runs on every push regardless of secrets.
+  # Fast, no external dependencies — runs on every push.
   typecheck-and-lint:
     name: Typecheck & lint
     runs-on: ubuntu-latest
@@ -29,70 +29,60 @@ jobs:
       - run: npm run lint
 
   # Golden-path Playwright tests: sign up → onboard, send a DM, create a
-  # band. Runs against a DEDICATED Supabase TEST project — see
-  # e2e/README.md for one-time setup. Needs three repo secrets:
-  #   E2E_SUPABASE_URL, E2E_SUPABASE_ANON_KEY, E2E_SUPABASE_SERVICE_ROLE_KEY
+  # band. Runs against a throwaway LOCAL Supabase stack (Postgres + Auth +
+  # Realtime + Storage, via Docker) that the Supabase CLI — already a
+  # devDependency — spins up fresh from supabase/migrations/ and tears down
+  # every run. No hosted "test project" and no repo secrets required; this
+  # never touches sondar-e2e.test rows anywhere but this ephemeral runner.
   e2e:
     name: E2E (golden paths)
     runs-on: ubuntu-latest
     needs: typecheck-and-lint
-    timeout-minutes: 15
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
-      # NEXT_PUBLIC_* vars are inlined into the app at BUILD time, not read
-      # at runtime, so this has to be set before `npm run build` below.
-      NEXT_PUBLIC_WAITLIST_MODE: 'false'
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
-      # Lets every later step skip cleanly (with one loud warning) instead of
-      # failing on undefined secrets, for as long as this repo runs CI
-      # before the test project is wired up.
-      - name: Check E2E secrets are configured
-        id: secrets-check
-        env:
-          E2E_URL: ${{ secrets.E2E_SUPABASE_URL }}
-          E2E_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
-          E2E_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          if [ -z "$E2E_URL" ] || [ -z "$E2E_ANON_KEY" ] || [ -z "$E2E_SERVICE_ROLE_KEY" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: E2E secrets missing — tests skipped
-        if: steps.secrets-check.outputs.configured != 'true'
-        run: |
-          echo "::warning::E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY / E2E_SUPABASE_SERVICE_ROLE_KEY are not set as repo secrets, so the sign-up, DM, and band-creation golden-path tests were SKIPPED, not passed. Set them up per e2e/README.md — this is the one gap that makes the rest of this workflow decorative."
-
       - uses: actions/setup-node@v4
-        if: steps.secrets-check.outputs.configured == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
       - run: npm ci
-        if: steps.secrets-check.outputs.configured == 'true'
+      - run: npx playwright install --with-deps chromium
 
-      - name: Install Playwright's Chromium
-        if: steps.secrets-check.outputs.configured == 'true'
-        run: npx playwright install --with-deps chromium
+      # ubuntu-latest ships Docker pre-installed and running — no separate
+      # setup action needed. This applies every file in supabase/migrations/
+      # to a fresh local database as part of starting the stack.
+      - name: Start local Supabase stack
+        run: npx supabase start
 
-      - name: Build (against the test Supabase project)
-        if: steps.secrets-check.outputs.configured == 'true'
-        run: npm run build
+      # `supabase status -o env` prints KEY="value" lines (API_URL, ANON_KEY,
+      # SERVICE_ROLE_KEY, ...). Export them into this step's shell, then
+      # re-emit under the names the app/tests actually read, into
+      # GITHUB_ENV so later steps see them too. NEXT_PUBLIC_* vars must be
+      # set before `npm run build` — they're inlined at build time, not
+      # read at runtime.
+      - name: Point the build at the local Supabase stack
+        run: |
+          eval "$(npx supabase status -o env | sed 's/^/export /')"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "NEXT_PUBLIC_WAITLIST_MODE=false"
+          } >> "$GITHUB_ENV"
+
+      - run: npm run build
 
       - name: Run golden-path E2E tests
-        if: steps.secrets-check.outputs.configured == 'true'
         run: npm run test:e2e
 
       - name: Upload Playwright report
-        if: always() && steps.secrets-check.outputs.configured == 'true'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+      - name: Stop local Supabase stack
+        if: always()
+        run: npx supabase stop
