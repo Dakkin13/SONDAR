@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type WebSocketLikeConstructor } from '@supabase/supabase-js'
+import WebSocket from 'ws'
 
 // Service-role client for test setup/teardown ONLY — creates and deletes
 // throwaway accounts directly against auth.users + profiles, bypassing RLS
@@ -21,7 +22,16 @@ export function adminClient(): SupabaseClient {
   cached = createClient(
     env('NEXT_PUBLIC_SUPABASE_URL'),
     env('SUPABASE_SERVICE_ROLE_KEY'),
-    { auth: { autoRefreshToken: false, persistSession: false } },
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      // supabase-js always constructs a RealtimeClient, even though this
+      // admin client never subscribes to anything — and that constructor
+      // throws on Node < 22, which has no built-in WebSocket. Node's own
+      // test/CI runners here are on Node 20, so this needs an explicit
+      // transport (the browser-side app never hits this: it always runs in
+      // a real browser, which has native WebSocket).
+      realtime: { transport: WebSocket as WebSocketLikeConstructor },
+    },
   )
   return cached
 }
