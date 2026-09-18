@@ -124,7 +124,8 @@ export default function BandDetailPage() {
   }
 
   useEffect(() => {
-    void loadAll()
+    async function run() { await loadAll() }
+    void run()
   }, [bandId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openInvite() {

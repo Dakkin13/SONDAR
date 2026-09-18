@@ -485,17 +485,30 @@ export default function ExplorePage() {
   const [activeOnly, setActiveOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  // Resets pagination to page 0 whenever a filter changes, without an extra
+  // effect + render round trip — React's documented pattern for adjusting
+  // state during render (https://react.dev/learn/you-might-not-need-an-effect).
+  const filterKey = `${instrument}|${objective}|${activeOnly}|${search}`
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
+    setPage(0)
+  }
 
   const lastFetchLatRef = useRef(DEFAULT_LAT)
   const lastFetchLngRef = useRef(DEFAULT_LNG)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pullStartYRef = useRef(0)
+  // Dev-only debug overlay reads these instead of the refs above directly —
+  // refs must not be read during render (React refs rule).
+  const [debugCoords, setDebugCoords] = useState({ lat: DEFAULT_LAT, lng: DEFAULT_LNG })
 
   // ── Data fetching ────────────────────────────────────────────────────────────
   const fetchMusicians = useCallback(async (lat: number, lng: number, silent = false) => {
     if (!silent) setLoading(true)
     lastFetchLatRef.current = lat
     lastFetchLngRef.current = lng
+    if (process.env.NODE_ENV === 'development') setDebugCoords({ lat, lng })
     const supabase = createClient()
 
     const { data: rpcData, error: rpcError } = await supabase
@@ -573,7 +586,8 @@ export default function ExplorePage() {
     })
 
     // Fetch immediately — don't wait for geolocation
-    void fetchMusicians(DEFAULT_LAT, DEFAULT_LNG)
+    async function runInitialFetch() { await fetchMusicians(DEFAULT_LAT, DEFAULT_LNG) }
+    void runInitialFetch()
 
     navigator.geolocation?.getCurrentPosition(
       async (pos) => {
@@ -598,11 +612,6 @@ export default function ExplorePage() {
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // ── Reset page when filters change ──────────────────────────────────────────
-  useEffect(() => {
-    setPage(0)
-  }, [instrument, objective, activeOnly, search])
 
   // ── Pull-to-refresh ──────────────────────────────────────────────────────────
   function handleTouchStart(e: React.TouchEvent) {
@@ -809,7 +818,7 @@ export default function ExplorePage() {
       {/* Dev debug panel */}
       {process.env.NODE_ENV === 'development' && (
         <div className="fixed bottom-[72px] right-3 z-50 rounded-lg bg-black/80 px-3 py-2 font-mono text-[10px] text-[rgba(240,239,235,0.7)] backdrop-blur-sm">
-          <p>lat {lastFetchLatRef.current.toFixed(4)} lng {lastFetchLngRef.current.toFixed(4)}</p>
+          <p>lat {debugCoords.lat.toFixed(4)} lng {debugCoords.lng.toFixed(4)}</p>
           <p className={musicians.length > 0 ? 'text-[#B8FF00]' : 'text-[#FF5500]'}>
             {musicians.length} loaded · {allFiltered.length} matched · {filtered.length} shown
           </p>

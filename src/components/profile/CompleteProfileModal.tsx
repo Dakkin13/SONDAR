@@ -152,8 +152,11 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
   const [saving,      setSaving]      = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Rendered results are hidden below 2 characters via visibleResults, so
+  // the too-short case just skips scheduling a search — no setState needed
+  // (nothing to clear synchronously inside the effect).
   useEffect(() => {
-    if (!query.trim() || query.trim().length < 2) { setResults([]); return }
+    if (!query.trim() || query.trim().length < 2) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
@@ -163,6 +166,10 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
     }, 350)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [query])
+
+  // Derived at render time rather than cleared via setState in the effect
+  // above — avoids a stale dropdown when the query drops below 2 chars.
+  const visibleResults = query.trim().length >= 2 ? results : []
 
   function addInfluence(artist: ArtistResult) {
     if (influences.length >= 5) return
@@ -354,7 +361,7 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
 
                 {/* Results — artist photo + name, sorted by popularity */}
                 <AnimatePresence>
-                  {results.length > 0 && (
+                  {visibleResults.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -363,7 +370,7 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
                       className="mt-2 overflow-hidden rounded-xl"
                       style={{ background: '#1a1a1a', border: '1px solid rgba(240,239,235,0.1)' }}
                     >
-                      {results.map((a, i) => (
+                      {visibleResults.map((a, i) => (
                         <button key={a.name} onClick={() => addInfluence(a)}
                           className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[rgba(240,239,235,0.05)]"
                           style={{ borderTop: i > 0 ? '1px solid rgba(240,239,235,0.05)' : 'none' }}>
@@ -378,7 +385,7 @@ export default function CompleteProfileModal({ onClose, onComplete }: Props) {
                   )}
                 </AnimatePresence>
 
-                {!searching && query.trim().length >= 2 && results.length === 0 && (
+                {!searching && query.trim().length >= 2 && visibleResults.length === 0 && (
                   <p className="mt-2 text-xs text-[rgba(240,239,235,0.25)]">No popular artists found. Try a different spelling.</p>
                 )}
               </motion.div>

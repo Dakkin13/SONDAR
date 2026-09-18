@@ -215,7 +215,20 @@ export default function SettingsPage() {
   const [addingPhoto, setAddingPhoto]     = useState(false)
   const [showDelete, setShowDelete]       = useState(false)
   const [deleting, setDeleting]           = useState(false)
-  const [blockedIds, setBlockedIds]       = useState<string[]>([])
+  // Lazy initializer instead of an effect: reads synchronously on the
+  // client's first render, guarded for SSR (localStorage doesn't exist
+  // there) — avoids a synchronous setState inside a useEffect.
+  const [blockedIds, setBlockedIds]       = useState<string[]>(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const ids: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('blocked_')) ids.push(key.replace('blocked_', ''))
+      }
+      return ids
+    } catch { return [] }
+  })
   const [blockedProfiles, setBlockedProfiles] = useState<{ id: string; display_name: string | null; avatar_url: string | null }[]>([])
 
   function patch<K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) {
@@ -265,24 +278,17 @@ export default function SettingsPage() {
     void load()
   }, [])
 
-  // ── Load blocked users ────────────────────────────────────────────────────────
+  // ── Load blocked users' profiles ──────────────────────────────────────────────
+  // blockedIds itself comes from the lazy useState initializer above; this
+  // effect only fetches the profile rows for those ids.
   useEffect(() => {
-    try {
-      const ids: string[] = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key?.startsWith('blocked_')) ids.push(key.replace('blocked_', ''))
-      }
-      setBlockedIds(ids)
-      if (ids.length > 0) {
-        void supabase
-          .from('profiles')
-          .select('id, display_name, avatar_url')
-          .in('id', ids)
-          .then(({ data }) => setBlockedProfiles(data ?? []))
-      }
-    } catch { /* ignore */ }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (blockedIds.length === 0) return
+    void supabase
+      .from('profiles')
+      .select('id, display_name, avatar_url')
+      .in('id', blockedIds)
+      .then(({ data }) => setBlockedProfiles(data ?? []))
+  }, [blockedIds]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Avatar upload ─────────────────────────────────────────────────────────────
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {

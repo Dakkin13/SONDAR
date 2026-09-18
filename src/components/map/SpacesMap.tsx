@@ -66,9 +66,12 @@ export default function SpacesMap({ spaces, centerCity, onSpaceClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<mapboxgl.Marker[]>([])
-  // Keep a ref to onSpaceClick so the marker effect doesn't need it as a dep
+  // Keep a ref to onSpaceClick so the marker effect doesn't need it as a dep.
+  // Written in an effect (runs after every render), not during render itself.
   const onSpaceClickRef = useRef(onSpaceClick)
-  onSpaceClickRef.current = onSpaceClick
+  useEffect(() => {
+    onSpaceClickRef.current = onSpaceClick
+  })
 
   // ── Create map once ──────────────────────────────────────────────────────────
   useEffect(() => {

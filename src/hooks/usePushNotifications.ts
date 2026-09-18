@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 function urlBase64ToUint8Array(base64: string): ArrayBuffer {
@@ -12,19 +12,25 @@ function urlBase64ToUint8Array(base64: string): ArrayBuffer {
   return out.buffer as ArrayBuffer
 }
 
-export function usePushNotifications(userId: string | null) {
-  const [permission, setPermission] = useState<NotificationPermission>('default')
-  const [supported, setSupported] = useState(false)
-  const [subscribed, setSubscribed] = useState(false)
+function detectSupport(): boolean {
+  return typeof window !== 'undefined'
+    && 'Notification' in window
+    && 'serviceWorker' in navigator
+    && 'PushManager' in window
+}
 
-  useEffect(() => {
-    const ok = typeof window !== 'undefined'
-      && 'Notification' in window
-      && 'serviceWorker' in navigator
-      && 'PushManager' in window
-    setSupported(ok)
-    if (ok) setPermission(Notification.permission)
-  }, [])
+export function usePushNotifications(userId: string | null) {
+  // Browser support doesn't change without a page reload, so it's just a
+  // plain computed value — no state/effect needed. permission's INITIAL
+  // value comes from a lazy useState initializer (synchronous, so nothing
+  // to wait for); the setter is what tracks later permission changes from
+  // requestAndSubscribe(). Both are guarded for SSR, where window/Notification
+  // don't exist yet.
+  const supported = detectSupport()
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    detectSupport() ? Notification.permission : 'default',
+  )
+  const [subscribed, setSubscribed] = useState(false)
 
   async function requestAndSubscribe() {
     const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
